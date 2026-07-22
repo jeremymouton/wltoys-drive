@@ -1,0 +1,26 @@
+# claude-autodev / local workflow scaffolding (not part of the app)
+.autodev/
+.claude/
+.mcp.json
+CLAUDE.md
+CLAUDE-TODO.md
+docs/
+.playwright/
+.playwright-mcp/
+
+# python artifacts
+__pycache__/
+*.pyc
+
+# node / os
+node_modules/
+npm-debug.log*
+.DS_Store
+
+# compiled macOS helpers (built locally via gamepad/build-mac.sh, or fetched by
+# install.sh on Mac) — source stays tracked, the binaries do not
+gamepad/gamepad_mac
+gamepad/keyboard_mac
+gamepad-helper
+keyboard-helper
+*.dSYM/
