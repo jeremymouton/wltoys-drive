@@ -201,6 +201,13 @@ Set via Steam Launch Options (`VAR=value %command%`) or inline (`VAR=value ./run
 
 ## Troubleshooting
 
+- **Game Mode: something failed and there's no terminal to read** — a run launched
+  from Steam has nowhere to print, so `run.sh` writes everything to
+  `~/wltoys-drive.log` instead (the previous run is kept as `~/wltoys-drive.log.prev`).
+  It starts with an environment dump — Steam's `LD_*` variables and an `nmcli` probe,
+  run in the same environment the driver gets — followed by every `[wifi]`/`[drive]`
+  line. `WLTOYS_LOG` sets a different path. Launched from a terminal, output goes to
+  the terminal as before and no log is written.
 - **No HUD but video works** — mpv is not installed and ffplay is being used. Run
   `bash install.sh` (Deck) or `brew install mpv` (macOS).
 - **macOS: no controller input** — build the helper with `bash gamepad/build-mac.sh`,

@@ -68,4 +68,35 @@ if [ "$PLATFORM" = "macos-arm64" ]; then
   command -v ffmpeg >/dev/null 2>&1 || echo "run.sh: ffmpeg not on PATH — optional; only the ffplay fallback if mpv can't run: brew install ffmpeg"
 fi
 
-exec "$NODE_DIR/bin/node" "$HERE/drive.mjs" "$@"
+# Game Mode has NO terminal: stderr goes nowhere, so every [wifi]/[drive] line —
+# including the reason auto-connect failed — vanishes, and "it didn't connect" is
+# indistinguishable from "it never tried". When stderr isn't a tty, tee the whole
+# run into a log file instead (keeping one previous run), led by a short env dump.
+# That dump is the point: a Steam-launched process inherits the Steam runtime's
+# LD_PRELOAD/LD_LIBRARY_PATH and has no polkit agent behind it, either of which can
+# break the nmcli calls auto-connect is built on — and Game Mode is the only place
+# that happens. Probing nmcli HERE runs it in the exact environment drive.mjs will.
+LOG="${WLTOYS_LOG:-$HOME/wltoys-drive.log}"
+if [ -t 2 ]; then
+  exec "$NODE_DIR/bin/node" "$HERE/drive.mjs" "$@"
+fi
+if [ -f "$LOG" ]; then mv -f "$LOG" "$LOG.prev"; fi
+{
+  echo "=== wltoys-drive $(date -u +%Y-%m-%dT%H:%M:%SZ)  platform=$PLATFORM ==="
+  echo "app=$HERE"
+  echo "args=$*"
+  echo "session=${XDG_SESSION_TYPE:-?}/${XDG_CURRENT_DESKTOP:-?}  steam=${SteamAppId:-none}"
+  echo "LD_PRELOAD=${LD_PRELOAD:-<unset>}"
+  echo "LD_LIBRARY_PATH=${LD_LIBRARY_PATH:-<unset>}"
+  if command -v nmcli >/dev/null 2>&1; then
+    echo "nmcli=$(command -v nmcli)"
+    nmcli --version 2>&1 | head -1
+    rc=0; out="$(nmcli -t -f ACTIVE,SSID device wifi 2>&1)" || rc=$?
+    echo "nmcli probe exit=$rc"
+    [ "$rc" = "0" ] && echo "active=$(echo "$out" | grep '^yes' | head -1)" || echo "nmcli said: $out"
+  else
+    echo "nmcli=MISSING FROM PATH — auto-connect cannot work"
+  fi
+  echo "=== app output ==="
+} > "$LOG" 2>&1
+exec "$NODE_DIR/bin/node" "$HERE/drive.mjs" "$@" >> "$LOG" 2>&1
