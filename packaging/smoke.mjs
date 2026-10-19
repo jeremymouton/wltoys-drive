@@ -32,6 +32,7 @@ end)
   const helper = path.join(home, process.platform === "win32" ? "input-fixture.exe" : "input-fixture");
   const compiled = spawnSync(process.platform === "win32" ? "gcc" : "cc", [path.join(here, "fixture.c"), "-O2", "-o", helper], { encoding: "utf8" });
   if (compiled.error || compiled.status !== 0) throw Error(compiled.error?.message || compiled.stderr);
+  console.log("Starting synthetic car and extracted driver");
   const child = spawn(node, [path.join(app, "drive.mjs")], {
     cwd: home, env: { ...env, CAR_IP: "127.0.0.1", NO_AUTOCONNECT: "1", FULLSCREEN: "0", KEYBOARD_BIN: helper, GAMEPAD_BIN: path.join(home, "absent-gamepad"), MPV_BIN: helper, FIXTURE_MPV: mpv, FIXTURE_LUA: fixture },
     stdio: ["ignore", "pipe", "pipe"],
@@ -40,6 +41,7 @@ end)
   child.stdout.on("data", (b) => output += b);
   child.stderr.on("data", (b) => {
     output += b;
+    if (process.env.CI) process.stdout.write(b);
     for (const match of String(b).matchAll(/fixture:(turn|release|forward|stale)/g)) marks[match[1]] = Date.now();
   });
   const sender = setInterval(() => {
@@ -54,7 +56,7 @@ end)
     frameId++;
   }, 40);
   let timedOut = false;
-  const timeout = setTimeout(() => { timedOut = true; child.kill(); }, 12000);
+  const timeout = setTimeout(() => { timedOut = true; child.kill(); setTimeout(() => child.kill("SIGKILL"), 2000).unref(); }, 12000);
   try {
     const [code] = await once(child, "exit");
     if (timedOut) throw Error(`Video never completed: ${output}`);
