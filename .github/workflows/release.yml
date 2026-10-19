@@ -57,6 +57,7 @@ jobs:
           RELEASE_VERSION: ${{ github.ref_type == 'tag' && github.ref_name || '0.0.0-dev' }}
         run: node packaging/build.mjs
       - name: Verify extracted application
+        timeout-minutes: 3
         shell: bash
         run: |
           for archive in dist/*.zip dist/*.tar.gz; do
