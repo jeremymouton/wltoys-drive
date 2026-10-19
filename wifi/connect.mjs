@@ -36,6 +36,7 @@
 // field text. Zero npm deps — only node:child_process. Style matches drive.mjs.
 
 import { spawn } from "node:child_process";
+import { windowsBackend } from "./windows.mjs";
 import { matchCarSsid, derivePw, splitTerse, parseSsidList, classifyNmcliExit } from "./core.mjs";
 
 // Default expected car gateway (mirror drive.mjs's CAR_IP; don't add a 2nd const).
@@ -257,11 +258,14 @@ export const mac = {
   joinCar: macJoinCar,
 };
 
-// The live platform (process.platform per spec W1.8; run.sh does the sysctl dance
-// for shell — in JS process.platform is the equivalent, "darwin" vs everything
-// else treated as Linux/nmcli).
-export const PLATFORM = process.platform === "darwin" ? "darwin" : "linux";
-const backend = PLATFORM === "darwin" ? mac : linux;
+export const windows = windowsBackend(run);
+export const PLATFORM = process.platform;
+const unsupported = {
+  SCAN_SUPPORTED: false, scanCars: async () => [], savedCars: async () => [],
+  openWifiPicker: async () => false, onCarAP: async () => false,
+  currentCar: async () => null, joinCar: async () => ({ ok: false, reason: "unsupported OS" }),
+};
+const backend = { darwin: mac, linux, win32: windows }[PLATFORM] || unsupported;
 
 // The common T3 surface — dispatched to the live platform's backend.
 export const SCAN_SUPPORTED = backend.SCAN_SUPPORTED;

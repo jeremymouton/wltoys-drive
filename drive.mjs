@@ -192,8 +192,9 @@ function feedJoyBytes(chunk, listMode = false) {
         hudUpHeld = up;
       }
     } else {
+      const wasPressed = buttons[number];
       buttons[number] = value; // 0 released, 1 pressed
-      if (number === RECORD_BUTTON && value === 1 && !isInit) toggleRecord(); // Y toggles recording (rising edge)
+      if (number === RECORD_BUTTON && value === 1 && !wasPressed && !isInit) toggleRecord(); // Y toggles recording (rising edge)
     }
     if (listMode && !isInit) {
       console.log(isAxis ? `axis ${number} = ${(value / 32767).toFixed(2)}` : `button ${number} = ${value}`);
@@ -247,7 +248,7 @@ function openGamepadMac(listMode = false) {
 // every key through joydev), and a graceful fallback to the mpv keyboard when the
 // helper is missing or Input Monitoring isn't granted.
 function openKeyboardMac() {
-  if (!["darwin", "win32"].includes(process.platform) || !KEYBOARD_BIN) return;
+  if (!KEYBOARD_BIN || (!["darwin", "win32"].includes(process.platform) && !process.env.KEYBOARD_BIN)) return;
   const probe = process.platform === "darwin" ? spawnSync(KEYBOARD_BIN, ["--probe"], { encoding: "utf8" }) : { status: 0, stdout: "OK" };
   if (probe.status !== 0 || !/OK/.test(probe.stdout || "")) {
     console.error("[keys] macOS keyboard helper needs Input Monitoring to combine throttle+steer.");
@@ -679,7 +680,7 @@ function stopRecord() { if (recording) toggleRecord(); }
 const VID_HDR = 32; // per-packet header; payload follows
 function makeReassembler(frameMax = 1 << 20) {
   const frame = Buffer.alloc(frameMax);
-  const seen = new Set(); // fragment offsets for the CURRENT frame (dedupe)
+  const seen = new Map(); // accepted offset -> length for the current frame
   let lastId = -1, total = 0, got = 0, emitted = false, needFirstKey = true;
   const st = { emitted: 0, abandoned: 0, badPackets: 0, dups: 0 };
   return {
@@ -704,11 +705,14 @@ function makeReassembler(frameMax = 1 << 20) {
       // bounds nor over-count progress.
       if (psz === 0 || psz > data.length - VID_HDR) { st.badPackets++; return null; }
       if (totalSize === 0 || totalSize > frameMax) { st.badPackets++; return null; }
-      if (offset + psz > frameMax) { st.badPackets++; return null; }
+      if (totalSize !== total || offset + psz > total) { st.badPackets++; return null; }
       if (seen.has(offset)) { st.dups++; return null; } // duplicate — must NOT inflate `got`
 
+      for (const [start, length] of seen) {
+        if (offset < start + length && start < offset + psz) { st.badPackets++; return null; }
+      }
       data.copy(frame, offset, VID_HDR, VID_HDR + psz);
-      seen.add(offset);
+      seen.set(offset, psz);
       got += psz;
       if (got < total) return null;
 

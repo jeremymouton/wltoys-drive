@@ -11,8 +11,9 @@ process.once("exit", () => {
 });
 
 export function findTool(name) {
+  if (name === "mpv" && process.env.MPV_BIN) return process.env.MPV_BIN;
   const filename = process.platform === "win32" ? `${name}.exe` : name;
-  for (const dir of [BIN_DIR, ...(process.env.PATH || "").split(path.delimiter)]) {
+  for (const dir of [BIN_DIR, ...(name === "input-helper" ? [path.join(APP_DIR, "gamepad")] : []), ...(process.env.PATH || "").split(path.delimiter)]) {
     if (!dir) continue;
     const candidate = path.join(dir, filename);
     try {
