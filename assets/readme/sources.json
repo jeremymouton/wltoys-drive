@@ -1,0 +1,41 @@
+{
+  "composition": "Real WLtoys 6401 and Valve Steam Deck OLED product photos in the accepted layout: fully visible app window and Deck side by side, smaller car below. No overlap, labels or headline. Native hardware photo proportions are retained; the OLED display and desktop window frame are composited.",
+  "rebuild": "swift assets/readme/build.swift",
+  "sources": [
+    {
+      "file": "source/wltoys-6401.jpg",
+      "title": "WLtoys 6401 product photo",
+      "url": "https://wltoys.co/products/wltoys-6401-1-64-fpv-rc",
+      "method": "Original product photo, converted from WebP to JPEG and scaled proportionally."
+    },
+    {
+      "file": "source/steam-deck-oled.png",
+      "title": "Valve Steam Deck OLED product photo",
+      "url": "https://cdn.fastly.steamstatic.com/steamdeck/images/press/renderings/press_oled_front_english.png",
+      "method": "Official OLED press image, cropped from 2500\u00d7980 at (267,166) to 1964\u00d7761 without stretching. Transparent shadow edges feathered at crop boundary. The active display occupies (491,69,984,615); the 16:9 FPV image is centered within this 16:10 display.",
+      "specification_url": "https://www.steamdeck.com/en/tech/oled",
+      "display": {
+        "resolution": [
+          1280,
+          800
+        ],
+        "diagonal_inches": 7.4
+      }
+    },
+    {
+      "file": "source/fpv-scene.jpg",
+      "title": "Illustrative FPV scene",
+      "method": "Built-in image_gen, guided by the previously approved room view.",
+      "prompt": "Use case: precise-object-edit.\nInput image is a previous README composition. Use ONLY the room visible inside its left-hand app window as the visual reference.\nDeliver a standalone clean 16:9 FPV camera scene of that same room: camera at a tiny RC car's height, just above the wooden floor, looking between the wooden chair legs toward the sofa, potted plants, curtains and soft window light. Preserve the warm wood, ordinary realistic room, toy-camera low perspective, and recognizable placement of chair legs from the reference.\nOutput ONLY the camera view, full bleed, at 1600x900 or a comparable 16:9 resolution. Remove all HUD elements: no crosshair, no throttle bar, no steering tape, no recording text, no numbers, no titlebar, no text at all. No device hardware, no visible car, no page background, no typography, no borders, no watermark. Natural photographic texture, restrained color, mildly imperfect consumer FPV camera image, no cinematic lighting or glossy advertising finish."
+    },
+    {
+      "file": "source/hud-preview.jpg",
+      "title": "Driver HUD over illustrative scene",
+      "method": "Captured from mpv using the HUD renderer in drive.mjs. An isolated scratch copy substituted the still image for the demo test pattern and set demo state to 35% throttle, -10% steering, trim 0, recording, and 25 FPS. App source is unchanged. This is not live car footage."
+    }
+  ],
+  "outputs": [
+    "overview.jpg",
+    "hud.jpg"
+  ]
+}

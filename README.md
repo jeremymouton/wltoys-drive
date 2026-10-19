@@ -1,5 +1,10 @@
 # wltoys-drive
 
+![Fully visible app window and Steam Deck OLED side by side, with a smaller WLtoys 6401 camera car below.](assets/readme/overview.jpg)
+
+*Product photos with the app's HUD over an illustrative FPV scene.
+[Image sources](assets/readme/sources.json).*
+
 Native driver for the WLtoys 6401 1/64 WiFi FPV car. Fullscreen mpv video with an
 FPV-style OSD and gamepad or keyboard control, read straight from the OS — no
 browser, no phone app, no Steam Input layer. Runs on the Steam Deck / Linux and on
@@ -97,6 +102,10 @@ If mpv is installed but not found, ensure `/opt/homebrew/bin` is on your PATH.
 3. Exit by closing the video window or pressing Ctrl-C.
 
 ## Controls
+
+![The app's HUD: recording and link status above, throttle on the left, crosshair in the center, steering below, and trim at bottom right.](assets/readme/hud.jpg)
+
+*The app's HUD, rendered over an illustrative FPV scene.*
 
 | Input | Action |
 |---|---|
