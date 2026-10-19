@@ -16,6 +16,9 @@ set -e
 HERE="$(cd "$(dirname "$0")" && pwd)"
 # Node must run from an exec-capable filesystem, so keep this on internal storage
 # (not a noexec exFAT/FAT card). Override with RUNTIME_DIR.
+if [ -x "$HERE/bin/node" ]; then
+  exec "$HERE/bin/node" "$HERE/drive.mjs" "$@"
+fi
 RT="${RUNTIME_DIR:-$HOME/wltoys-runtime}"
 NODE_VER="v22.11.0"
 NODE_DIR="$RT/node"

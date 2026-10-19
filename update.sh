@@ -35,6 +35,10 @@ detect_platform() {
 # script before running it — safe even though tar overwrites update.sh mid-run.
 main() {
   HERE="$(cd "$(dirname "$0")" && pwd)"
+  if [ -d "$HERE/bin" ]; then
+    echo "Portable app: download and extract the new platform package instead of running the source updater."
+    exit 1
+  fi
   REPO="jeremymouton/wltoys-drive"
   PLATFORM="$(detect_platform)"
 

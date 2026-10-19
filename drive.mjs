@@ -23,7 +23,8 @@ import os from "node:os";
 import readline from "node:readline";
 import { existsSync } from "node:fs";
 import { spawn, spawnSync } from "node:child_process";
-import { fileURLToPath } from "node:url";
+import path from "node:path";
+import { APP_DIR, SESSION_DIR, findTool, luaString } from "./runtime.mjs";
 // WiFi auto-connect (W1) + reconnect (W4): pure core + platform backends live in
 // ./wifi/ (zero npm deps). drive.mjs stays the sole car-facing script; wifi/ is
 // spawn-only glue over nmcli (Linux/Deck) / networksetup+gateway (macOS).
@@ -109,12 +110,13 @@ function firstJoystick() {
 // Disable WiFi power-save — battery power-management batches/delays incoming
 // packets, adding latency+jitter to the live feed. Best-effort (may need root).
 function wifiPowerSaveOff() {
+  if (process.platform !== "linux") return;
   let iface = process.env.WIFI_IFACE;
   if (!iface) {
-    const r = spawnSync("sh", ["-c", 'for d in /sys/class/net/*/wireless; do basename "$(dirname "$d")"; done 2>/dev/null'], { encoding: "utf8" });
-    iface = (r.stdout || "").trim().split("\n")[0] || "wlan0";
+    try { iface = fs.readdirSync("/sys/class/net").find((d) => existsSync(`/sys/class/net/${d}/wireless`)); } catch {}
   }
-  const r = spawnSync("sh", ["-c", `iw dev ${iface} set power_save off 2>/dev/null || sudo -n iw dev ${iface} set power_save off 2>/dev/null`]);
+  if (!iface) return;
+  const r = spawnSync("iw", ["dev", iface, "set", "power_save", "off"], { stdio: "ignore" });
   console.error(r.status === 0
     ? `[wifi] power_save off on ${iface} (lower jitter)`
     : `[wifi] couldn't disable power_save on ${iface} — optional: sudo iw dev ${iface} set power_save off`);
@@ -123,13 +125,12 @@ function wifiPowerSaveOff() {
 // App directory (trailing "/") so paths resolve from any cwd, and the macOS
 // gamepad helper: GAMEPAD_BIN env override → dev build (gamepad/gamepad_mac) →
 // packaged bundle (gamepad-helper beside drive.mjs). Empty on Linux / when unbuilt.
-const APP_DIR = fileURLToPath(new URL(".", import.meta.url));
 const GAMEPAD_BIN = process.env.GAMEPAD_BIN ||
-  [APP_DIR + "gamepad/gamepad_mac", APP_DIR + "gamepad-helper"].find((p) => existsSync(p)) || "";
+  [path.join(APP_DIR, "gamepad/gamepad_mac"), path.join(APP_DIR, "gamepad-helper"), findTool("input-helper")].find((p) => p && existsSync(p)) || "";
 // macOS keyboard helper: reads the raw keyboard so throttle+steer combine (mpv
 // only ever reports one key at a time). Same lookup shape as GAMEPAD_BIN.
 const KEYBOARD_BIN = process.env.KEYBOARD_BIN ||
-  [APP_DIR + "gamepad/keyboard_mac", APP_DIR + "keyboard-helper"].find((p) => existsSync(p)) || "";
+  [path.join(APP_DIR, "gamepad/keyboard_mac"), path.join(APP_DIR, "keyboard-helper"), findTool("input-helper")].find((p) => p && existsSync(p)) || "";
 
 // ---- gamepad: parse the joydev protocol (fixed 8-byte events) ---------------
 const axes = [];
@@ -170,6 +171,7 @@ function feedJoyBytes(chunk, listMode = false) {
     const type = data.readUInt8(off + 6);
     const number = data.readUInt8(off + 7);
     off += 8;
+    if (type === 0x40) { connected = value !== 0; if (connected) gamepadEverSeen = true; continue; }
     const isAxis = (type & 0x02) !== 0;
     const isInit = (type & 0x80) !== 0; // synthetic event fired on open — ignore for --list
     if (isAxis) {
@@ -222,9 +224,19 @@ function openGamepadMac(listMode = false) {
   // The helper stays silent until a controller connects; its first bytes are the
   // init burst. Mirror joydev's "open" semantics — mark connected once events
   // flow, so with no pad `connected` stays false and currentPacket() sends neutral.
-  helper.stdout.on("data", (chunk) => { connected = true; gamepadEverSeen = true; feedJoyBytes(chunk, listMode); txOnChange(); });
+  let lastData = Date.now();
+  helper.stdout.on("data", (chunk) => {
+    lastData = Date.now();
+    if (process.platform !== "win32") { connected = true; gamepadEverSeen = true; }
+    feedJoyBytes(chunk, listMode); txOnChange();
+  });
+  if (process.platform === "win32") {
+    const watch = setInterval(() => { if (Date.now() - lastData > 250) { connected = false; txOnChange(); } }, 50);
+    watch.unref();
+    helper.once("exit", () => clearInterval(watch));
+  }
   helper.on("error", (e) => { connected = false; console.error(`[gamepad] helper error: ${e.message} — failsafe to neutral`); });
-  helper.on("exit", () => { connected = false; });
+  helper.on("exit", () => { connected = false; txOnChange(); });
   process.once("exit", () => { try { helper.kill(); } catch { /* noop */ } });
 }
 
@@ -235,8 +247,8 @@ function openGamepadMac(listMode = false) {
 // every key through joydev), and a graceful fallback to the mpv keyboard when the
 // helper is missing or Input Monitoring isn't granted.
 function openKeyboardMac() {
-  if (process.platform !== "darwin" || !KEYBOARD_BIN) return;
-  const probe = spawnSync(KEYBOARD_BIN, ["--probe"], { encoding: "utf8" });
+  if (!["darwin", "win32"].includes(process.platform) || !KEYBOARD_BIN) return;
+  const probe = process.platform === "darwin" ? spawnSync(KEYBOARD_BIN, ["--probe"], { encoding: "utf8" }) : { status: 0, stdout: "OK" };
   if (probe.status !== 0 || !/OK/.test(probe.stdout || "")) {
     console.error("[keys] macOS keyboard helper needs Input Monitoring to combine throttle+steer.");
     console.error("[keys] Grant it: System Settings > Privacy & Security > Input Monitoring (add your terminal), then relaunch.");
@@ -245,7 +257,7 @@ function openKeyboardMac() {
   }
   let helper;
   try {
-    helper = spawn(KEYBOARD_BIN, [], { stdio: ["ignore", "pipe", "inherit"] });
+    helper = spawn(KEYBOARD_BIN, process.platform === "win32" ? ["--keyboard"] : [], { stdio: ["ignore", "pipe", "inherit"] });
   } catch (e) {
     console.error(`[keys] keyboard helper failed to start: ${e.message} — mpv keyboard fallback`);
     return;
@@ -262,15 +274,14 @@ function openKeyboardMac() {
   helper.on("error", (e) => console.error(`[keys] keyboard helper error: ${e.message}`));
   helper.on("exit", () => { kbHelperActive = false; }); // helper gone -> heartbeat goes stale -> failsafe neutral
   process.once("exit", () => { try { helper.kill(); } catch { /* noop */ } });
-  console.error("[keys] macOS keyboard helper active — W+A/D combine. H = toggle HUD.");
+  console.error("[keys] keyboard helper active — W+A/D combine. H = toggle HUD.");
 }
 
 function openGamepad(listMode = false) {
-  if (process.platform === "darwin") return openGamepadMac(listMode);
+  if (process.platform === "darwin" || process.platform === "win32") return openGamepadMac(listMode);
   // ---- Linux / Steam Deck: read the joydev device directly (UNCHANGED) ----
   if (!existsSync(JS)) {
     console.error(`No gamepad at ${JS}. Check: ls /dev/input/js*  (try JS_DEVICE=/dev/input/js1)`);
-    if (!listMode) process.exit(1);
     return;
   }
   console.error(`[gamepad] reading ${JS}`);
@@ -290,8 +301,8 @@ function noPlayer() {
 // file; a tiny mpv Lua script polls that file and paints it in the top-right
 // corner. The file hop keeps the HUD live without an mpv IPC socket, and stays
 // readable even when the app runs from a (sandboxed) SD card.
-const HUD_LUA = os.homedir() + "/.wltoys-hud.lua";
-const HUD_DATA = os.homedir() + "/.wltoys-hud.txt";
+const HUD_LUA = path.join(SESSION_DIR, "hud.lua");
+const HUD_DATA = path.join(SESSION_DIR, "hud.txt");
 const hud = { fps: 0, frames: 0, lastRx: 0, steer: 0, throttle: 0, recStart: 0, mode: VIDEO_MODE.toUpperCase() };
 let hudVisible = true; // 'h' (keyboard) or D-pad up toggles the OSD overlay on/off
 // Flip HUD visibility and apply it at once — writeHudData paints an empty overlay when off.
@@ -311,9 +322,10 @@ function toggleHud() {
 // desync — and merges it READ-ONLY into currentPacket(). The keyboard NEVER
 // writes the shared axes[]/buttons[] arrays: the exact regression guard for the
 // logged throttle-latch bug.
-const KEY_FIFO = os.homedir() + "/.wltoys-keys"; // beside HUD_DATA / HUD_LUA
+const KEY_FIFO = path.join(SESSION_DIR, "keys");
 const KB_FAILSAFE_MS = 250; // no heartbeat within this window -> force neutral
 const kbState = { steer: 0, fwd: false, rev: false };
+let kbStop = false;
 let kbLastKeys = 0; // ms of the last KEYS heartbeat (0 = none yet -> inactive)
 let kbHelperActive = false; // macOS native keyboard helper is feeding handleKeyLine (full multi-key)
 let kbStream = null;
@@ -327,6 +339,7 @@ function handleKeyLine(ln) {
   if (!ln.startsWith("KEYS ")) return;
   kbLastKeys = Date.now();
   const h = new Set(ln.slice(5).trim().split(/\s+/));
+  kbStop = h.has("SPACE");
   if (h.has("SPACE")) { kbState.steer = 0; kbState.fwd = false; kbState.rev = false; return; } // stop overrides all
   kbState.fwd = h.has("w") || h.has("UP");
   kbState.rev = h.has("s") || h.has("DOWN");
@@ -349,6 +362,7 @@ function kbLive() {
 // O_RDWR: never blocks, never EOFs even across an mpv restart) is open before the
 // Lua opens the write end. Idempotent; clears any stale FIFO first.
 function startKeyboard() {
+  if (process.platform === "win32") return;
   if (kbStream) return;
   try { fs.unlinkSync(KEY_FIFO); } catch { /* no stale FIFO */ }
   if (spawnSync("mkfifo", [KEY_FIFO]).status !== 0) {
@@ -388,11 +402,11 @@ function writeHudLua() {
   // ungranted) use the mpv path: complex FORCED bindings track a held-key SET and a
   // 20 Hz timer writes the FULL set to the FIFO Node opened for reading (idempotent
   // heartbeat — but one key at a time, the limit the helper removes).
-  const keys = kbHelperActive ? `
+  const keys = kbHelperActive || process.platform === "win32" ? `
 local function kswallow(k) mp.add_forced_key_binding(k, "wlk_" .. k, function() end, {complex = true}) end
 for _, k in ipairs({"w", "a", "s", "d", "UP", "DOWN", "LEFT", "RIGHT", "SPACE", "h", "r"}) do kswallow(k) end
 ` : `
-local keyfifo = io.open("${KEY_FIFO}", "w")
+local keyfifo = io.open(${luaString(KEY_FIFO)}, "w")
 if keyfifo then
   keyfifo:setvbuf("no")
   local held = {}
@@ -418,7 +432,7 @@ if keyfifo then
 end
 `;
   const lua = `
-local datafile = "${HUD_DATA}"
+local datafile = ${luaString(HUD_DATA)}
 local ov = mp.create_osd_overlay("ass-events")
 ov.res_x = 1280
 ov.res_y = 720
@@ -537,14 +551,15 @@ function writeHudData() {
 // Build a player invocation. src = {rtsp:true}, {pipe:true} (raw HEVC on stdin),
 // or {demo:true} (mpv-only: test pattern for previewing the OSD).
 function buildPlayer(src) {
-  const has = (c) => spawnSync("sh", ["-c", `command -v ${c} >/dev/null`]).status === 0;
-  const flatpakMpv = spawnSync("sh", ["-c", "flatpak info io.mpv.Mpv >/dev/null 2>&1"]).status === 0;
+  const mpv = findTool("mpv");
+  const ffplay = findTool("ffplay");
+  const flatpakMpv = !mpv && process.platform === "linux" && spawnSync("flatpak", ["info", "io.mpv.Mpv"], { stdio: "ignore" }).status === 0;
   // Fullscreen on the Deck/Linux (Game Mode); windowed on macOS by default so it
   // doesn't take over the screen. Override either way with FULLSCREEN=1/0.
   const wantFullscreen = process.env.FULLSCREEN !== undefined
     ? /^(1|true|yes|on)$/i.test(process.env.FULLSCREEN)
-    : process.platform !== "darwin";
-  const mpvCommon = ["--profile=low-latency", "--hwdec=auto", "--no-audio", "--cache=no",
+    : process.platform === "linux";
+  const mpvCommon = ["--no-config", "--title=WLtoys Drive", "--profile=low-latency", "--hwdec=auto", "--no-audio", "--cache=no",
     "--demuxer-readahead-secs=0", "--framedrop=vo", "--untimed",
     ...(wantFullscreen ? ["--fullscreen"] : ["--autofit=1280x720"]),
     // A lossy UDP feed always yields SOME undecodable NALUs; ffmpeg logs a 2-line
@@ -552,8 +567,8 @@ function buildPlayer(src) {
     // them back when actually debugging the stream.
     ...(process.env.VIDEO_VERBOSE ? [] : ["--msg-level=ffmpeg=fatal"]),
     "--no-osc", "--osd-level=0", "--force-window=yes"];
-  if (has("mpv") || flatpakMpv) {
-    const pre = has("mpv") ? ["mpv"] : ["flatpak", "run", "io.mpv.Mpv"];
+  if (mpv || flatpakMpv) {
+    const pre = mpv ? [mpv] : ["flatpak", "run", "io.mpv.Mpv"];
     const hudArgs = writeHudLua() ? [`--script=${HUD_LUA}`] : [];
     if (hudArgs.length && !kbHelperActive) startKeyboard(); // FIFO + reader BEFORE mpv's Lua opens the write end (skip when the native helper feeds keys)
     // Raw-HEVC latency trims. We hand mpv a byte stream, so ffmpeg has to re-derive
@@ -576,9 +591,9 @@ function buildPlayer(src) {
     return { cmd: pre[0], args: [...pre.slice(1), ...mpvCommon, ...hudArgs, ...tail] };
   }
   if (src.demo) return null; // the OSD needs mpv's Lua overlay — no ffplay fallback
-  if (has("ffplay")) {
+  if (ffplay) {
     return {
-      cmd: "ffplay",
+      cmd: ffplay,
       args: src.pipe
         ? ["-fflags", "nobuffer", "-flags", "low_delay", "-framedrop", "-sync", "video", "-fs", "-f", "hevc", "-"]
         : ["-fflags", "nobuffer", "-flags", "low_delay", "-avioflags", "direct", "-framedrop", "-rtsp_transport", RTSP_TRANSPORT, "-fs", RTSP],
@@ -777,13 +792,15 @@ function startUdpVideo() {
     }, 5000);
   }
 
-  player.on("exit", () => {
+  const clean = () => {
     clearInterval(watchdog);
     if (statTimer) clearInterval(statTimer);
     player._camStop();
     try { rx.close(); } catch {}
     try { cmdSock.close(); } catch {}
-  });
+  };
+  player.on("exit", clean);
+  player.on("error", clean);
   return player;
 }
 
@@ -836,6 +853,7 @@ async function pickCarOnOsd(cars, opts = {}) {
       // Never hang a headless/unattended boot: fall back to the highlighted car.
       if (Date.now() - t0 > timeoutMs) finish(cars[idx]);
     }, 30);
+    player.on("error", (e) => { console.error(`[video] ${e.message}`); finish(null); });
     player.on("exit", () => finish(cars[idx])); // user closed it -> take the highlight
     draw();
   });
@@ -864,7 +882,8 @@ function hudDemo() {
     writeHudData();
   }, 100);
   const player = spawn(p.cmd, p.args, { stdio: "inherit" });
-  player.on("exit", () => { clearInterval(timer); stopKeyboard(); process.exit(0); });
+  player.on("exit", (code) => { clearInterval(timer); stopKeyboard(); process.exit(code || 0); });
+  player.on("error", (e) => { console.error(`[video] ${e.message}`); clearInterval(timer); stopKeyboard(); process.exit(1); });
 }
 
 // ---- control loop ----------------------------------------------------------
@@ -891,21 +910,22 @@ function currentPacket() {
   // when no recent heartbeat. Merged with the gamepad HERE — never written into
   // the shared axes[]/buttons[] (the throttle-latch regression guard).
   const kb = kbLive();
+  if (kbStop && Date.now() - kbLastKeys <= KB_FAILSAFE_MS) return neutral();
   const kbActive = kb.fwd || kb.rev || kb.steer !== 0; // any live keyboard input this tick
   // Gamepad gone AND no live keyboard -> stop. Keyboard is its OWN liveness source,
   // so keyboard-only driving (no controller at all) still produces real packets.
   if (!connected && !kbActive) { hud.steer = 0; hud.throttle = 0; return neutral(); }
   // steer = gamepad axis + keyboard, additively clamped, then the shared deadzone/expo.
-  const steerNorm = expo(deadzone(Math.max(-1, Math.min(1, (axes[STEER_AXIS] || 0) + kb.steer))), STEER_EXPO);
+  const steerNorm = expo(deadzone(Math.max(-1, Math.min(1, (connected ? axes[STEER_AXIS] || 0 : 0) + kb.steer))), STEER_EXPO);
 
   let net; // throttle in -1..1 (+ forward, - reverse)
   if (THROTTLE_MODE === "trigger") {
     // forward = right trigger OR A button OR keyboard (W/↑); reverse = LT OR B OR keyboard (S/↓)
-    const forward = Math.max(triggerAmount(RT_AXIS), buttons[ACCEL_BUTTON] ? 1 : 0, kb.fwd ? 1 : 0);
-    const reverse = Math.max(triggerAmount(LT_AXIS), buttons[REVERSE_BUTTON] ? 1 : 0, kb.rev ? 1 : 0);
+    const forward = Math.max(connected ? triggerAmount(RT_AXIS) : 0, connected && buttons[ACCEL_BUTTON] ? 1 : 0, kb.fwd ? 1 : 0);
+    const reverse = Math.max(connected ? triggerAmount(LT_AXIS) : 0, connected && buttons[REVERSE_BUTTON] ? 1 : 0, kb.rev ? 1 : 0);
     net = forward - reverse;
   } else {
-    net = -deadzone(axes[THROTTLE_AXIS] || 0) + (kb.fwd ? 1 : 0) - (kb.rev ? 1 : 0); // stick up = forward, + keyboard
+    net = -deadzone(connected ? axes[THROTTLE_AXIS] || 0 : 0) + (kb.fwd ? 1 : 0) - (kb.rev ? 1 : 0);
     net = Math.max(-1, Math.min(1, net));
   }
   net = expo(net, THROTTLE_EXPO);
@@ -1114,10 +1134,12 @@ async function connectCar(deps = {}) {
     // Linux/Deck: scan -> 0 (message, continue) / 1 (auto) / >=2 (picker).
     let cars = [];
     try { cars = await w.scanCars(); } catch { cars = []; }
-    if (cars.length === 0) {
+    if (carSsid) {
+      ssid = carSsid;
+    } else if (cars.length === 0) {
       log("[wifi] no car found — power it on / move in range (or set CAR_SSID)");
-      if (carSsid) ssid = carSsid;                       // honor an explicit override
-      else return { action: "nojoin", ssid: null };      // non-fatal: run on current net / CAR_IP
+      if (process.platform === "win32" && w.openWifiPicker) await w.openWifiPicker();
+      return { action: "nojoin", ssid: null };
     } else if (cars.length === 1) {
       ssid = cars[0];
       log(`[wifi] found ${ssid}`);
@@ -1768,7 +1790,7 @@ if (process.argv.includes("--list")) {
 } else if (process.argv.includes("--hud-demo")) {
   hudDemo();
 } else {
-  main();
+  main().catch((e) => { console.error(`[drive] ${e.message}`); process.exit(1); });
 }
 
 async function main() {
@@ -1781,6 +1803,7 @@ async function main() {
   wifiPowerSaveOff();
   openKeyboardMac(); // macOS: prefer the raw-keyboard helper (multi-key) over mpv's one-key path
   const video = startVideo();
+  if (!video) { stopKeyboard(); process.exit(1); }
   controlLive = true; // arm send-on-change (input handlers were no-ops until now)
   const timer = setInterval(() => tx(currentPacket()), 1000 / SEND_HZ); // heartbeat floor
 
@@ -1791,7 +1814,7 @@ async function main() {
   // W4: reconnect-on-drop monitor — async timer, NEVER in the 50Hz control loop.
   const monitor = startWifiMonitor(video);
   let done = false;
-  const shutdown = () => {
+  const shutdown = (code = 0) => {
     if (done) return;
     done = true;
     // Disarm send-on-change FIRST: a deferred packet firing after the neutral
@@ -1807,11 +1830,12 @@ async function main() {
     for (let i = 0; i < 6; i++) sock.send(neutral(), CTRL_PORT, CAR_IP); // failsafe
     if (video && video._camStop) video._camStop(); // stop the UDP camera stream
     if (video) try { video.kill(); } catch {}
-    setTimeout(() => process.exit(0), 150);
+    setTimeout(() => process.exit(typeof code === "number" ? code : 0), 150);
   };
   process.on("SIGINT", shutdown);
   process.on("SIGTERM", shutdown);
-  if (video) video.on("exit", shutdown); // closing the video window stops the car
+  video.on("error", (e) => { console.error(`[video] ${e.message}`); shutdown(1); });
+  video.on("exit", (code) => shutdown(code || 0));
   console.error(`[drive] car=${CAR_IP}  video=${VIDEO_MODE}  throttle=${THROTTLE_MODE}  steerAxis=${STEER_AXIS}` +
     (THROTTLE_MODE === "trigger" ? `  RT=${RT_AXIS} LT=${LT_AXIS} accelBtn=${ACCEL_BUTTON} revBtn=${REVERSE_BUTTON}` : ` throttleAxis=${THROTTLE_AXIS}`));
   console.error(`[drive] expo steer=${STEER_EXPO} throttle=${THROTTLE_EXPO}  trim=${trim}`);

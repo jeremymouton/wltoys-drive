@@ -135,6 +135,7 @@ center.addObserver(forName: .GCControllerDidDisconnect, object: nil, queue: .mai
     // Emit a neutral frame — all mapped axes to rest 0, all buttons released.
     for n: UInt8 in [0, 1, 2, 5, 6, 7] { ax(0, n) }
     for n: UInt8 in 0...7 { bt(false, n) }
+    emit(0, 0x40, 0)
     flush() // one write for the neutral safety frame
 }
 
