@@ -1,0 +1,94 @@
+name: Standalone apps
+on:
+  push:
+    branches: [main, 'feature/**']
+    tags: ['v*']
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  package:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: macos-14
+            target: macos-arm64
+          - os: ubuntu-22.04
+            target: linux-x64
+          - os: windows-2022
+            target: windows-x64
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24.19.0'
+      - name: macOS build tools
+        if: runner.os == 'macOS'
+        run: brew install mpv
+      - name: Linux build tools
+        if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install -y mpv build-essential
+      - uses: msys2/setup-msys2@v2
+        id: msys2
+        if: runner.os == 'Windows'
+        with:
+          msystem: MINGW64
+          install: mingw-w64-x86_64-gcc
+          path-type: inherit
+      - name: Windows compiler path
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: Add-Content $env:GITHUB_PATH '${{ steps.msys2.outputs.msys2-location }}\mingw64\bin'
+      - name: Source checks
+        shell: bash
+        run: |
+          node --check drive.mjs
+          node --check runtime.mjs
+          node drive.mjs --selftest
+          node --test wifi/test/*.test.mjs
+      - name: Package application
+        shell: bash
+        env:
+          RELEASE_VERSION: ${{ github.ref_type == 'tag' && github.ref_name || '0.0.0-dev' }}
+        run: node packaging/build.mjs
+      - name: Verify extracted application
+        shell: bash
+        run: |
+          for archive in dist/*.zip dist/*.tar.gz; do
+            [ -f "$archive" ] || continue
+            node packaging/verify.mjs "$archive"
+          done
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.target }}
+          path: dist/*
+          if-no-files-found: error
+
+  release:
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: package
+    runs-on: ubuntu-22.04
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: dist
+          merge-multiple: true
+      - name: Publish verified downloads
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          TAG: ${{ github.ref_name }}
+        shell: bash
+        run: |
+          cd dist
+          sha256sum ./wltoys-drive-*.zip ./wltoys-drive-*.tar.gz ./*-helper-macos-arm64 > SHA256SUMS
+          if ! gh release view "$TAG" >/dev/null 2>&1; then
+            gh release create "$TAG" --verify-tag --generate-notes --title "$TAG"
+          fi
+          gh release upload "$TAG" ./* --clobber

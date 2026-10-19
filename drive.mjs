@@ -210,7 +210,7 @@ function feedJoyBytes(chunk, listMode = false) {
 // byte unchanged across OSes.
 function openGamepadMac(listMode = false) {
   if (!GAMEPAD_BIN) {
-    console.error("[gamepad] no macOS controller helper found — build it with: bash gamepad/build-mac.sh");
+    console.error("[gamepad] no native controller helper found — see the source build instructions");
     console.error("[gamepad] continuing without a controller (keyboard steering + video still work).");
     return; // never crash: keyboard driving + video run regardless of a pad
   }
@@ -252,7 +252,7 @@ function openKeyboardMac() {
   const probe = process.platform === "darwin" ? spawnSync(KEYBOARD_BIN, ["--probe"], { encoding: "utf8" }) : { status: 0, stdout: "OK" };
   if (probe.status !== 0 || !/OK/.test(probe.stdout || "")) {
     console.error("[keys] macOS keyboard helper needs Input Monitoring to combine throttle+steer.");
-    console.error("[keys] Grant it: System Settings > Privacy & Security > Input Monitoring (add your terminal), then relaunch.");
+    console.error("[keys] Grant it: System Settings > Privacy & Security > Input Monitoring (add WLtoys Drive, or your terminal for source launches), then relaunch.");
     console.error("[keys] Using the mpv keyboard (one key at a time) until then.");
     return;
   }
@@ -1417,6 +1417,13 @@ async function selftest() {
   check("KEYS LEFT (arrow) = steer left (<128)", currentPacket()[9] < NEUTRAL);
   handleKeyLine("KEYS w SPACE"); // SPACE stop overrides even a held W
   check("KEYS SPACE = neutral (stop overrides held keys)", currentPacket()[10] === NEUTRAL);
+  buttons[ACCEL_BUTTON] = 1;
+  check("SPACE overrides a held gamepad throttle", currentPacket()[10] === NEUTRAL);
+  buttons[ACCEL_BUTTON] = 0;
+  axes[STEER_AXIS] = -1; buttons[REVERSE_BUTTON] = 1; connected = false;
+  handleKeyLine("KEYS w d");
+  check("disconnected gamepad cannot contaminate keyboard input", currentPacket()[9] === 255 && currentPacket()[10] === 255);
+  axes[STEER_AXIS] = 0; buttons[REVERSE_BUTTON] = 0; connected = true;
   handleKeyLine("KEYS w"); // hold forward again, then simulate a dead pipe (stale heartbeat)
   kbLastKeys = Date.now() - (KB_FAILSAFE_MS + 50); // no heartbeat within the window -> failsafe
   check("stale heartbeat > failsafe window -> neutral (never latch)", currentPacket()[10] === NEUTRAL);

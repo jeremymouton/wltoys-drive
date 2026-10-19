@@ -17,7 +17,7 @@ if ! command -v swiftc >/dev/null 2>&1; then
   exit 1
 fi
 
-swiftc -O "$DIR/gamepad_mac.swift" -o "$DIR/gamepad_mac" \
+swiftc -target arm64-apple-macos14.0 -O "$DIR/gamepad_mac.swift" -o "$DIR/gamepad_mac" \
   -framework GameController -framework Foundation \
   -Xlinker -sectcreate -Xlinker __TEXT -Xlinker __info_plist -Xlinker "$DIR/Info.plist"
 
@@ -26,7 +26,7 @@ echo "built $DIR/gamepad_mac"
 # Keyboard helper — reads the physical keyboard (all keys at once) via CGEventTap
 # so throttle + steer combine, working around mpv delivering only one key at a
 # time. No Info.plist (not GameController). Needs "Input Monitoring" at runtime.
-swiftc -O "$DIR/keyboard_mac.swift" -o "$DIR/keyboard_mac" \
+swiftc -target arm64-apple-macos14.0 -O "$DIR/keyboard_mac.swift" -o "$DIR/keyboard_mac" \
   -framework CoreGraphics -framework Foundation -framework AppKit
 
 echo "built $DIR/keyboard_mac"

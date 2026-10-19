@@ -1,0 +1,11 @@
+import fs from "node:fs";
+import os from "node:os";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
+const root = path.dirname(fileURLToPath(import.meta.url));
+const escape = (s) => s.replace(/\\/g, "\\\\").replace(/"/g, '\\"').replace(/`/g, "\\`").replace(/\$/g, "\\$").replace(/%/g, "%%");
+const data = `[Desktop Entry]\nType=Application\nName=WLtoys Drive\nExec="${escape(path.join(root, "wltoys-drive"))}"\nTerminal=false\nCategories=Game;\n`;
+const dir = path.join(process.env.XDG_DATA_HOME || path.join(os.homedir(), ".local/share"), "applications");
+fs.mkdirSync(dir, { recursive: true });
+fs.writeFileSync(path.join(dir, "wltoys-drive.desktop"), data, { mode: 0o755 });
+console.log("Installed WLtoys Drive in your applications menu. In Steam, add wltoys-drive as a non-Steam game.");

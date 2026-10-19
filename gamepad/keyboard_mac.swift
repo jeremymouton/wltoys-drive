@@ -48,7 +48,7 @@ if CommandLine.arguments.contains("--probe") {
 
 if !CGPreflightListenEventAccess() {
     CGRequestListenEventAccess() // trigger the system prompt (won't be granted this run)
-    note("keyboard_mac: needs Input Monitoring. Grant it in System Settings > Privacy & Security > Input Monitoring (add your terminal), then relaunch.")
+    note("keyboard_mac: needs Input Monitoring. Grant it in System Settings > Privacy & Security > Input Monitoring (add WLtoys Drive, or your terminal for source launches), then relaunch.")
     exit(1)
 }
 
