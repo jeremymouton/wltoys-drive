@@ -150,6 +150,11 @@ if (process.platform === "darwin") {
   const expanded = path.join(work, "mpv");
   run("7z", ["x", archive, `-o${expanded}`, "-y"]);
   for (const file of fs.readdirSync(expanded).filter((f) => /\.(exe|dll)$/i.test(f) && !/^updater/i.test(f))) copy(path.join(expanded, file), path.join(bin, file));
+  const imports = [...run("objdump", ["-p", path.join(bin, "mpv.exe")]).matchAll(/DLL Name:\s*(\S+)/g)].map((m) => m[1]);
+  console.log("Windows player DLLs:", imports.join(", "));
+  for (const dll of imports) {
+    if (!fs.existsSync(path.join(bin, dll)) && !fs.existsSync(path.join(process.env.SystemRoot, "System32", dll))) console.log(`DLL absent from package/System32: ${dll}`);
+  }
   collectNotices(expanded, "mpv-windows");
   manifest.dependencies.push(deps.windowsMpv);
   run("powershell.exe", ["-NoProfile", "-ExecutionPolicy", "Bypass", "-File", path.join(root, "gamepad/build-windows.ps1"), "-Output", path.join(bin, "input-helper.exe")]);

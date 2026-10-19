@@ -71,7 +71,7 @@ end)
       ["stale", 350, 500, (p) => p[9] === 128 && p[10] === 128],
     ]) {
       const phase = samples.filter((s) => s.at >= marks[name] + wait && s.at <= marks[name] + duration);
-      if (!phase.length || !phase.every((s) => check(s.packet))) throw Error(`Input ${name} failsafe check failed`);
+      if (!phase.length || !phase.every((s) => check(s.packet))) throw Error(`Input ${name} failsafe check failed: ${JSON.stringify({marks, packets: phase.map((s) => [s.at - marks[name], s.packet[9], s.packet[10]])})}\n${output}`);
     }
     if (!packets.slice(-6).every((p) => p[9] === 128 && p[10] === 128)) throw Error("Shutdown failed to neutralize");
     console.log(`UDP/video smoke: ${packets.length} valid packets, ${frameId} HEVC frames; neutral shutdown`);
