@@ -87,7 +87,11 @@ static int gateway(const wchar_t *ip) {
         if (a->IfType != IF_TYPE_IEEE80211 || a->OperStatus != IfOperStatusUp) continue;
         for (IP_ADAPTER_GATEWAY_ADDRESS *g = a->FirstGatewayAddress; g; g = g->Next) {
             SOCKADDR_IN *addr = (SOCKADDR_IN *)g->Address.lpSockaddr;
-            if (addr->sin_family == AF_INET && !strcmp(inet_ntoa(addr->sin_addr), target)) found = 1;
+            if (addr->sin_family == AF_INET) {
+                const unsigned char *bytes = (const unsigned char *)&addr->sin_addr;
+                char text[32]; snprintf(text, sizeof(text), "%u.%u.%u.%u", bytes[0], bytes[1], bytes[2], bytes[3]);
+                if (!strcmp(text, target)) found = 1;
+            }
         }
     }
     free(adapters);
@@ -153,8 +157,8 @@ int wmain(int argc, wchar_t **argv) {
     if (argc > 1 && !wcsncmp(argv[1], L"--wifi-", 7)) return wifi(argc, argv);
     if (argc > 1 && !wcscmp(argv[1], L"--keyboard")) { keyboard(); return 0; }
     _setmode(_fileno(stdout), _O_BINARY);
-    HMODULE lib = LoadLibraryW(L"xinput1_4.dll");
-    if (!lib) lib = LoadLibraryW(L"xinput9_1_0.dll");
+    HMODULE lib = LoadLibraryExW(L"xinput1_4.dll", NULL, LOAD_LIBRARY_SEARCH_SYSTEM32);
+    if (!lib) lib = LoadLibraryExW(L"xinput9_1_0.dll", NULL, LOAD_LIBRARY_SEARCH_SYSTEM32);
     DWORD (WINAPI *getState)(DWORD, XINPUT_STATE *) = lib ? (void *)GetProcAddress(lib, "XInputGetState") : NULL;
     if (!getState) { fputs("XInput is unavailable\n", stderr); return 1; }
     int previous = -1;

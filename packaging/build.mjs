@@ -2,7 +2,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { spawnSync } from "node:child_process";
+import { spawn, spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
@@ -150,7 +150,17 @@ if (process.platform === "darwin") {
   const expanded = path.join(work, "mpv");
   run("7z", ["x", archive, `-o${expanded}`, "-y"]);
   for (const file of fs.readdirSync(expanded).filter((f) => /\.(exe|dll)$/i.test(f) && !/^updater/i.test(f))) copy(path.join(expanded, file), path.join(bin, file));
-  const imports = [...run("objdump", ["-p", path.join(bin, "mpv.exe")]).matchAll(/DLL Name:\s*(\S+)/g)].map((m) => m[1]);
+  const imports = await new Promise((resolve, reject) => {
+    const names = new Set(); let pending = "";
+    const child = spawn("objdump", ["-p", path.join(bin, "mpv.exe")]);
+    child.stdout.on("data", (b) => {
+      const lines = (pending + b).split("\n"); pending = lines.pop();
+      for (const line of lines) { const m = line.match(/DLL Name:\s*(\S+)/); if (m) names.add(m[1]); }
+    });
+    child.stderr.on("data", (b) => process.stderr.write(b));
+    child.on("error", reject);
+    child.on("close", (code) => code ? reject(Error("Cannot inspect Windows player imports")) : resolve([...names]));
+  });
   console.log("Windows player DLLs:", imports.join(", "));
   for (const dll of imports) {
     if (!fs.existsSync(path.join(bin, dll)) && !fs.existsSync(path.join(process.env.SystemRoot, "System32", dll))) console.log(`DLL absent from package/System32: ${dll}`);

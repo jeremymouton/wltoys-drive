@@ -1,6 +1,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <time.h>
 #ifdef _WIN32
 #include <windows.h>
 #include <process.h>
@@ -13,17 +14,27 @@
 int main(int argc, char **argv) {
     if (argc > 1 && !strcmp(argv[1], "--probe")) { puts("OK"); return 0; }
     if (argc == 1 || (argc == 2 && !strcmp(argv[1], "--keyboard"))) {
-        for (int i = 0; i < 600; i++) {
-            if (i == 40) { fputs("fixture:turn\n", stderr); fflush(stderr); }
-            if (i == 70) { fputs("fixture:release\n", stderr); fflush(stderr); }
-            if (i == 90) { fputs("fixture:forward\n", stderr); fflush(stderr); }
-            if (i == 110) { fputs("fixture:stale\n", stderr); fflush(stderr); }
-            if (i < 40) puts("KEYS -");
-            else if (i < 70) puts("KEYS w d");
-            else if (i < 90) puts("KEYS -");
-            else if (i < 110) puts("KEYS w");
-            else if (i < 140) { pause_ms(20); continue; }
-            else puts("KEYS -");
+#ifdef _WIN32
+        unsigned long long start = GetTickCount64();
+#else
+        struct timespec tick; clock_gettime(CLOCK_MONOTONIC, &tick);
+        unsigned long long start = tick.tv_sec * 1000ULL + tick.tv_nsec / 1000000;
+#endif
+        int previous = -1;
+        for (;;) {
+#ifdef _WIN32
+            unsigned long long elapsed = GetTickCount64() - start;
+#else
+            clock_gettime(CLOCK_MONOTONIC, &tick);
+            unsigned long long elapsed = tick.tv_sec * 1000ULL + tick.tv_nsec / 1000000 - start;
+#endif
+            if (elapsed > 12000) break;
+            int stage = elapsed < 800 ? 0 : elapsed < 1400 ? 1 : elapsed < 1800 ? 2 : elapsed < 2200 ? 3 : elapsed < 2800 ? 4 : 5;
+            const char *markers[] = {"idle", "turn", "release", "forward", "stale", "done"};
+            if (stage != previous) { fprintf(stderr, "fixture:%s\n", markers[stage]); fflush(stderr); previous = stage; }
+            if (stage == 1) puts("KEYS w d");
+            else if (stage == 3) puts("KEYS w");
+            else if (stage != 4) puts("KEYS -");
             fflush(stdout); pause_ms(20);
         }
         return 0;

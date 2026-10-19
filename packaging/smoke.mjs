@@ -34,7 +34,7 @@ end)
   if (compiled.error || compiled.status !== 0) throw Error(compiled.error?.message || compiled.stderr);
   console.log("Starting synthetic car and extracted driver");
   const child = spawn(node, [path.join(app, "drive.mjs")], {
-    cwd: home, env: { ...env, CAR_IP: "127.0.0.1", NO_AUTOCONNECT: "1", FULLSCREEN: "0", KEYBOARD_BIN: helper, GAMEPAD_BIN: path.join(home, "absent-gamepad"), MPV_BIN: helper, FIXTURE_MPV: mpv, FIXTURE_LUA: fixture },
+    cwd: home, env: { ...env, CAR_IP: "127.0.0.1", NO_AUTOCONNECT: "1", FULLSCREEN: "0", KEYBOARD_BIN: helper, GAMEPAD_BIN: path.join(home, "absent-gamepad"), JS_DEVICE: path.join(home, "absent-gamepad"), MPV_BIN: helper, FIXTURE_MPV: mpv, FIXTURE_LUA: fixture },
     stdio: ["ignore", "pipe", "pipe"],
   });
   let output = "";

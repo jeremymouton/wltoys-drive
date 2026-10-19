@@ -5,6 +5,10 @@ on:
     tags: ['v*']
   workflow_dispatch:
 
+concurrency:
+  group: standalone-${{ github.ref }}
+  cancel-in-progress: true
+
 permissions:
   contents: read
 
