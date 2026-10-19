@@ -100,7 +100,8 @@ let timer = CFRunLoopTimerCreateWithHandler(kCFAllocatorDefault, CFAbsoluteTimeG
     let app = NSWorkspace.shared.frontmostApplication
     let name = (app?.localizedName ?? "").lowercased()
     let bid = (app?.bundleIdentifier ?? "").lowercased()
-    focused = name.contains(focusMatch) || bid.contains(focusMatch)
+    focused = name.contains(focusMatch) || bid.contains(focusMatch) ||
+        (ProcessInfo.processInfo.environment["KB_FOCUS_MATCH"] == nil && bid == "com.jeremymouton.wltoys-drive")
     let display = app?.localizedName ?? "?"
     if display != lastFrontmost { lastFrontmost = display; note("focus: \(display) — \(focused ? "DRIVE" : "ignore")") }
     let ks = focused ? held.sorted().joined(separator: " ") : "" // neutral while another app is focused

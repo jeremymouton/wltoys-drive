@@ -1142,7 +1142,18 @@ async function connectCar(deps = {}) {
       ssid = carSsid;
     } else if (cars.length === 0) {
       log("[wifi] no car found — power it on / move in range (or set CAR_SSID)");
-      if (process.platform === "win32" && w.openWifiPicker) await w.openWifiPicker();
+      if (process.platform === "win32" && w.openWifiPicker) {
+        await w.openWifiPicker();
+        for (let i = 0; i < 15; i++) {
+          await nap(1000);
+          if (await w.onCarAP()) {
+            lastSsid = await w.currentCar();
+            if (lastSsid) remember(lastSsid);
+            noInternetCaveat();
+            return { action: "join", ssid: lastSsid, ok: true };
+          }
+        }
+      }
       return { action: "nojoin", ssid: null };
     } else if (cars.length === 1) {
       ssid = cars[0];
@@ -1487,6 +1498,13 @@ async function selftest() {
   dupSent.push(asm.push(frag(2, 300, 0, B.subarray(0, 150)))); // DUPLICATE, not the missing tail
   check("reassembly: duplicate fragment cannot complete a frame", dupSent.every((x) => x === null));
   check("reassembly: incomplete frame counted as abandoned", (asm.push(frag(3, 300, 0, B.subarray(0, 150))), asm.stats.abandoned === 1));
+
+  asm = makeReassembler();
+  asm.push(frag(8, 300, 0, A.subarray(0, 200)));
+  check("reassembly: overlapping fragments cannot complete a frame", asm.push(frag(8, 300, 100, A.subarray(100))) === null);
+  check("reassembly: payload past the declared frame boundary is rejected", asm.push(frag(8, 300, 290, A.subarray(0, 20))) === null);
+  check("reassembly: inconsistent total size is rejected", asm.push(frag(8, 301, 200, A.subarray(200))) === null);
+  check("reassembly: valid tail still completes after rejected fragments", asm.push(frag(8, 300, 200, A.subarray(200)))?.equals(A));
 
   // Out-of-order fragments must still rebuild the frame exactly.
   asm = makeReassembler();

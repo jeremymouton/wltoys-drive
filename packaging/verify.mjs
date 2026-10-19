@@ -14,7 +14,7 @@ const run = (cmd, args, options = {}) => {
   return r.stdout;
 };
 try {
-  run(process.platform === "darwin" ? "ditto" : "tar", process.platform === "darwin" ? ["-x", "-k", archive, temp] : ["-xf", archive, "-C", temp]);
+  run(process.platform === "darwin" ? "ditto" : process.platform === "win32" ? path.join(process.env.SystemRoot, "System32/tar.exe") : "tar", process.platform === "darwin" ? ["-x", "-k", archive, temp] : ["-xf", archive, "-C", temp]);
   const top = path.join(temp, fs.readdirSync(temp).find((s) => s !== "__MACOSX"));
   const app = process.platform === "darwin" ? path.join(top, "Contents/Resources") : top;
   const manifest = JSON.parse(fs.readFileSync(path.join(app, "build.json")));

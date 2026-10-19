@@ -45,7 +45,7 @@ const digest = sums.split("\n").find((s) => s.endsWith("  " + archiveName))?.spl
 if (!digest || !/^[a-f0-9]{64}$/.test(digest)) throw Error("Node checksum not found");
 const nodeArchive = path.join(work, archiveName);
 await download(base + archiveName, nodeArchive, digest);
-if (process.platform === "win32") run("tar", ["-xf", nodeArchive, "-C", work]);
+if (process.platform === "win32") run(path.join(process.env.SystemRoot, "System32/tar.exe"), ["-xf", nodeArchive, "-C", work]);
 else run("tar", ["-xzf", nodeArchive, "-C", work]);
 const nodeDir = path.join(work, `node-v${deps.node}-${slug}`);
 copy(path.join(nodeDir, process.platform === "win32" ? "node.exe" : "bin/node"), path.join(bin, process.platform === "win32" ? "node.exe" : "node"));
@@ -128,7 +128,7 @@ if (process.platform === "darwin") {
   const packages = new Set();
   for (const entry of entries.filter((f) => !system.test(path.basename(f)))) {
     copy(fs.realpathSync(entry), path.join(libdir, path.basename(entry)));
-    const owner = run("dpkg-query", ["-S", entry]).split(": ")[0]; packages.add(owner);
+    const owner = run("dpkg-query", ["-S", `*/${path.basename(entry)}`]).split("\n")[0].split(": ")[0]; packages.add(owner);
   }
   packages.add("mpv");
   for (const pkg of packages) {

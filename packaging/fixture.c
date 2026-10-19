@@ -32,7 +32,16 @@ int main(int argc, char **argv) {
     for (int i = 1; i < argc; i++) args[i] = argv[i];
     args[argc] = "--vo=null"; args[argc + 1] = "--hwdec=no"; args[argc + 2] = script;
 #ifdef _WIN32
-    return (int)_spawnv(_P_WAIT, mpv, (const char *const *)args);
+    char command[65536] = {0};
+    for (int i = 0; args[i]; i++) {
+        strcat(command, "\""); strcat(command, args[i]); strcat(command, "\" ");
+    }
+    STARTUPINFOA startup = {0}; startup.cb = sizeof(startup);
+    PROCESS_INFORMATION process;
+    if (!CreateProcessA(mpv, command, NULL, NULL, TRUE, 0, NULL, NULL, &startup, &process)) return 1;
+    WaitForSingleObject(process.hProcess, INFINITE);
+    DWORD code; GetExitCodeProcess(process.hProcess, &code);
+    CloseHandle(process.hThread); CloseHandle(process.hProcess); return (int)code;
 #else
     execv(mpv, args); perror("mpv fixture"); return 1;
 #endif
