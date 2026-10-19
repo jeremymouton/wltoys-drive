@@ -580,7 +580,7 @@ function buildPlayer(src) {
     // These only shave the buffering around that; the framing cost needs a real fix.
     // VIDEO_LOWLAT=0 restores the previous pipeline for an A/B.
     const lowLat = process.env.VIDEO_LOWLAT !== "0";
-    const options = src.pipe ? spawnSync(pre[0], [...pre.slice(1), "--list-options"], { encoding: "utf8", maxBuffer: 2 * 1024 * 1024 }).stdout || "" : "";
+    const options = src.pipe ? spawnSync(pre[0], [...pre.slice(1), "--no-config", "--list-options"], { encoding: "utf8", maxBuffer: 2 * 1024 * 1024 }).stdout || "" : "";
     const fpsFlag = options.includes("--container-fps-override") ? "--container-fps-override" : "--fps";
     const pipeTrims = lowLat ? [
       "--vd-lavc-o=flags=+low_delay",   // decoder: don't hold frames back to reorder

@@ -4,6 +4,7 @@ import path from "node:path";
 import { spawnSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import { smoke } from "./smoke.mjs";
+import { checkWindowsInput } from "./windows-input-check.mjs";
 
 const archive = path.resolve(process.argv[2] || "");
 if (!fs.statSync(archive).isFile()) throw Error("Pass a built platform archive");
@@ -26,7 +27,7 @@ try {
   const node = path.join(app, "bin", process.platform === "win32" ? "node.exe" : "node");
   const mpv = path.join(app, "bin", process.platform === "win32" ? "mpv.exe" : "mpv");
   const home = path.join(temp, "test home"); fs.mkdirSync(home);
-  const env = { ...process.env, HOME: home, USERPROFILE: home, NO_AUTOCONNECT: "1", PATH: process.platform === "win32" ? `${process.env.SystemRoot}\\System32;${process.env.SystemRoot}` : "/usr/bin:/bin:/usr/sbin:/sbin" };
+  const env = { ...process.env, HOME: home, USERPROFILE: home, TMPDIR: home, TMP: home, TEMP: home, NO_AUTOCONNECT: "1", PATH: process.platform === "win32" ? `${process.env.SystemRoot}\\System32;${process.env.SystemRoot}` : "/usr/bin:/bin:/usr/sbin:/sbin" };
   if (process.platform === "darwin") {
     run("codesign", ["--verify", "--deep", "--strict", top]);
     for (const file of [mpv, ...fs.readdirSync(path.join(app, "lib")).map((s) => path.join(app, "lib", s))]) {
@@ -49,6 +50,7 @@ try {
   }
   console.log("Checking app UDP/input/video integration");
   await smoke({ app, node, mpv, env, home });
+  if (process.platform === "win32") await checkWindowsInput(app, home, env);
   console.log(`PASS ${manifest.target}: extracted launch, runtime, player, HUD, UDP video/control, failsafes and notices`);
   if (process.env.KEEP_PACKAGE_CHECK) console.log(`Extracted package: ${top}`);
 } finally {

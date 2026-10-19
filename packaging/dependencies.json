@@ -4,5 +4,13 @@
     "url": "https://github.com/shinchiro/mpv-winbuild-cmake/releases/download/20261019/mpv-x86_64-20261019-git-6a262d11f6.7z",
     "sha256": "e23cd1622ad299322fdf37a5405e0ff541fe2031b01487b059580e3aa27c2ba9",
     "source": "https://github.com/shinchiro/mpv-winbuild-cmake/tree/20261019"
+  },
+  "Vulkan-Headers": {
+    "url": "https://codeload.github.com/KhronosGroup/Vulkan-Headers/tar.gz/refs/tags/vulkan-sdk-1.4.363.0",
+    "sha256": "4a078be12bef21cfebc09d878b77a63cff9d68f899254a0b00d0e37ef73e7f7e"
+  },
+  "Vulkan-Loader": {
+    "url": "https://codeload.github.com/KhronosGroup/Vulkan-Loader/tar.gz/refs/tags/vulkan-sdk-1.4.363.0",
+    "sha256": "941eff558fc74f248745fb7df367640cf89a8457f216dae498a74ae14b6ba6f7"
   }
 }

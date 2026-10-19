@@ -14,6 +14,14 @@
 int main(int argc, char **argv) {
     if (argc > 1 && !strcmp(argv[1], "--probe")) { puts("OK"); return 0; }
     if (argc == 1 || (argc == 2 && !strcmp(argv[1], "--keyboard"))) {
+        const char *ready = getenv("FIXTURE_READY");
+        if (ready) {
+            for (int attempt = 0; attempt < 600; attempt++) {
+                FILE *flag = fopen(ready, "r");
+                if (flag) { fclose(flag); break; }
+                puts("KEYS -"); fflush(stdout); pause_ms(20);
+            }
+        }
 #ifdef _WIN32
         unsigned long long start = GetTickCount64();
 #else

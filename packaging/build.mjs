@@ -150,6 +150,23 @@ if (process.platform === "darwin") {
   const expanded = path.join(work, "mpv");
   run("7z", ["x", archive, `-o${expanded}`, "-y"]);
   for (const file of fs.readdirSync(expanded).filter((f) => /\.(exe|dll)$/i.test(f) && !/^updater/i.test(f))) copy(path.join(expanded, file), path.join(bin, file));
+  const sources = {};
+  for (const component of ["Vulkan-Headers", "Vulkan-Loader"]) {
+    const source = path.join(work, component); fs.mkdirSync(source);
+    const archive = path.join(work, component + ".tar.gz");
+    await download(deps[component].url, archive, deps[component].sha256);
+    run(path.join(process.env.SystemRoot, "System32/tar.exe"), ["-xzf", archive, "--strip-components=1", "-C", source]);
+    sources[component] = source; collectNotices(source, component);
+    manifest.dependencies.push({ name: component, ...deps[component] });
+  }
+  console.log("Building the portable Vulkan loader");
+  const headersBuild = path.join(work, "headers-build"), headersInstall = path.join(work, "headers-install");
+  run("cmake", ["-S", sources["Vulkan-Headers"], "-B", headersBuild, "-G", "Visual Studio 17 2022", "-A", "x64", `-DCMAKE_INSTALL_PREFIX=${headersInstall}`]);
+  run("cmake", ["--build", headersBuild, "--config", "Release", "--target", "install"]);
+  const loaderBuild = path.join(work, "loader-build"), loaderInstall = path.join(work, "loader-install");
+  run("cmake", ["-S", sources["Vulkan-Loader"], "-B", loaderBuild, "-G", "Visual Studio 17 2022", "-A", "x64", `-DCMAKE_PREFIX_PATH=${headersInstall}`, `-DCMAKE_INSTALL_PREFIX=${loaderInstall}`, "-DBUILD_TESTS=OFF", "-DUPDATE_DEPS=OFF"]);
+  run("cmake", ["--build", loaderBuild, "--config", "Release", "--target", "install", "--parallel", "2"]);
+  copy(path.join(loaderInstall, "bin/vulkan-1.dll"), path.join(bin, "vulkan-1.dll"));
   const imports = await new Promise((resolve, reject) => {
     const names = new Set(); let pending = "";
     const child = spawn("objdump", ["-p", path.join(bin, "mpv.exe")]);
@@ -163,7 +180,7 @@ if (process.platform === "darwin") {
   });
   console.log("Windows player DLLs:", imports.join(", "));
   for (const dll of imports) {
-    if (!fs.existsSync(path.join(bin, dll)) && !fs.existsSync(path.join(process.env.SystemRoot, "System32", dll))) console.log(`DLL absent from package/System32: ${dll}`);
+    if (!/^api-ms-/i.test(dll) && !fs.existsSync(path.join(bin, dll)) && !fs.existsSync(path.join(process.env.SystemRoot, "System32", dll))) console.log(`DLL absent from package/System32: ${dll}`);
   }
   collectNotices(expanded, "mpv-windows");
   manifest.dependencies.push(deps.windowsMpv);

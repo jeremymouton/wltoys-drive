@@ -110,7 +110,7 @@ node packaging/verify.mjs dist/wltoys-drive-macos-arm64.zip  # select your archi
 ```
 
 Build prerequisites: macOS has Xcode Command Line Tools, Homebrew and mpv;
-Linux has GCC, mpv and Debian package metadata; Windows has MinGW GCC and 7-Zip.
+Linux has GCC, mpv and Debian package metadata; Windows has MinGW GCC, 7-Zip, CMake and Visual Studio 2022 C++ build tools.
 Packaging downloads and verifies a pinned Node runtime and Windows player;
 Mac/Linux player dependencies come from the build machine and are recorded in
 the manifest. See `.github/workflows/release.yml` for the release build environment.

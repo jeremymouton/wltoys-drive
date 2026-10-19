@@ -4,6 +4,7 @@ import dgram from "node:dgram";
 import { spawn, spawnSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import { once } from "node:events";
+import { luaString } from "../runtime.mjs";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 export async function smoke({ app, node, mpv, env, home }) {
@@ -23,9 +24,11 @@ export async function smoke({ app, node, mpv, env, home }) {
   const frames = boundaries.map((start, i) => feed.subarray(start, boundaries[i + 1] || feed.length));
   if (!frames.length) throw Error("Synthetic HEVC fixture has no access units");
   const fixture = path.join(home, "mpv-fixture.lua");
+  const ready = path.join(home, "video-ready");
   // Run inside the actual bundled player: exercise Lua, video decode and the same keyboard message boundary.
   fs.writeFileSync(fixture, `
 mp.register_event('file-loaded', function()
+  local f = assert(io.open(${luaString(ready)}, 'w')); f:write('ready'); f:close()
   mp.add_timeout(3.5, function() mp.commandv('quit', '0') end)
 end)
 `);
@@ -34,7 +37,7 @@ end)
   if (compiled.error || compiled.status !== 0) throw Error(compiled.error?.message || compiled.stderr);
   console.log("Starting synthetic car and extracted driver");
   const child = spawn(node, [path.join(app, "drive.mjs")], {
-    cwd: home, env: { ...env, CAR_IP: "127.0.0.1", NO_AUTOCONNECT: "1", FULLSCREEN: "0", KEYBOARD_BIN: helper, GAMEPAD_BIN: path.join(home, "absent-gamepad"), JS_DEVICE: path.join(home, "absent-gamepad"), MPV_BIN: helper, FIXTURE_MPV: mpv, FIXTURE_LUA: fixture },
+    cwd: home, env: { ...env, CAR_IP: "127.0.0.1", NO_AUTOCONNECT: "1", FULLSCREEN: "0", KEYBOARD_BIN: helper, GAMEPAD_BIN: path.join(home, "absent-gamepad"), JS_DEVICE: path.join(home, "absent-gamepad"), MPV_BIN: helper, FIXTURE_MPV: mpv, FIXTURE_LUA: fixture, FIXTURE_READY: ready },
     stdio: ["ignore", "pipe", "pipe"],
   });
   let output = "";
