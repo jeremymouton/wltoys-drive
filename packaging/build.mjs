@@ -66,8 +66,8 @@ function collectNotices(directory, prefix, depth = 0) {
 if (process.platform === "darwin") {
   run("/bin/bash", [path.join(root, "gamepad/build-mac.sh")]);
   copy(path.join(root, "gamepad/gamepad_mac"), path.join(app, "gamepad-helper"));
-  copy(path.join(root, "gamepad/keyboard_mac"), path.join(app, "keyboard-helper"));
-  executable(path.join(app, "gamepad-helper")); executable(path.join(app, "keyboard-helper"));
+  executable(path.join(app, "gamepad-helper"));
+  manifest.macKeyboardInput = "window-local";
   const libdir = path.join(app, "lib"); fs.mkdirSync(libdir);
   const queued = new Map(), names = new Map(), formulas = new Set();
   function stage(source, destination) {
@@ -99,6 +99,9 @@ if (process.platform === "darwin") {
     return destination;
   }
   const mpv = run("/usr/bin/which", ["mpv"]).trim(); stage(mpv, path.join(bin, "mpv"));
+  const playerBundle = path.join(app, "Player.app");
+  fs.mkdirSync(path.join(playerBundle, "Contents/MacOS"), { recursive: true });
+  stage(path.join(root, "gamepad/player_mac"), path.join(playerBundle, "Contents/MacOS/wltoys-player"));
   console.log(`Bundled mpv and ${queued.size - 1} libraries; collecting dependency metadata`);
   const formulaData = JSON.parse(run("brew", ["info", "--json=v2", ...formulas])).formulae;
   for (const formula of formulas) {
@@ -109,7 +112,7 @@ if (process.platform === "darwin") {
   }
   fs.mkdirSync(path.join(top, "Contents/MacOS"), { recursive: true });
   run("clang", ["-O2", "-mmacosx-version-min=14.0", path.join(root, "packaging/macos-launcher.c"), "-o", path.join(top, "Contents/MacOS/wltoys-drive")]);
-  const versions = [...queued.values(), path.join(bin, "node"), path.join(app, "gamepad-helper"), path.join(app, "keyboard-helper")].map((file) => {
+  const versions = [...queued.values(), path.join(bin, "node"), path.join(app, "gamepad-helper")].map((file) => {
     return run("vtool", ["-show-build", file]).match(/minos (\S+)/)?.[1] || "14.0";
   });
   manifest.minimumMacOS = versions.sort((a, b) => {
@@ -118,7 +121,9 @@ if (process.platform === "darwin") {
     return 0;
   }).at(-1);
   fs.writeFileSync(path.join(top, "Contents/Info.plist"), fs.readFileSync(path.join(root, "packaging/Info.plist"), "utf8").replace("VERSION", version.replace(/^v/, "")).replace("MIN_OS", manifest.minimumMacOS));
-  for (const file of ["bin/node", "gamepad-helper", "keyboard-helper"]) run("codesign", ["--force", "--sign", "-", path.join(app, file)]);
+  fs.writeFileSync(path.join(playerBundle, "Contents/Info.plist"), fs.readFileSync(path.join(root, "packaging/Player-Info.plist"), "utf8").replace("MIN_OS", manifest.minimumMacOS));
+  run("codesign", ["--force", "--deep", "--sign", "-", playerBundle]);
+  for (const file of ["bin/node", "gamepad-helper"]) run("codesign", ["--force", "--sign", "-", path.join(app, file)]);
 } else if (process.platform === "linux") {
   const mpv = run("which", ["mpv"]).trim();
   const player = path.join(bin, "mpv.bin"), libdir = path.join(app, "lib");
@@ -201,7 +206,7 @@ const hash = createHash("sha256").update(fs.readFileSync(archive)).digest("hex")
 fs.writeFileSync(archive + ".sha256", `${hash}  ${path.basename(archive)}\n`);
 if (process.platform === "darwin") {
   copy(path.join(app, "gamepad-helper"), path.join(out, "gamepad-helper-macos-arm64"));
-  copy(path.join(app, "keyboard-helper"), path.join(out, "keyboard-helper-macos-arm64"));
+  fs.rmSync(path.join(out, "keyboard-helper-macos-arm64"), { force: true });
 }
 console.log(archive);
 fs.rmSync(work, { recursive: true, force: true });

@@ -40,6 +40,10 @@ static void keyboard(void) {
     int oldH = 0, oldR = 0;
     for (;;) {
         int active = focused(), any = 0;
+        if (!active) {
+            puts("KEYS -"); oldH = oldR = 0;
+            fflush(stdout); Sleep(20); continue;
+        }
         fputs("KEYS", stdout);
         for (unsigned i = 0; i < sizeof(keys)/sizeof(keys[0]); i++) {
             if (active && (GetAsyncKeyState(keys[i]) & 0x8000)) {

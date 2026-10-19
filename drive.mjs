@@ -24,7 +24,7 @@ import readline from "node:readline";
 import { existsSync } from "node:fs";
 import { spawn, spawnSync } from "node:child_process";
 import path from "node:path";
-import { APP_DIR, SESSION_DIR, findTool, luaString } from "./runtime.mjs";
+import { APP_DIR, SESSION_DIR, LOCAL_PLAYER, findTool, luaString } from "./runtime.mjs";
 // WiFi auto-connect (W1) + reconnect (W4): pure core + platform backends live in
 // ./wifi/ (zero npm deps). drive.mjs stays the sole car-facing script; wifi/ is
 // spawn-only glue over nmcli (Linux/Deck) / networksetup+gateway (macOS).
@@ -127,10 +127,7 @@ function wifiPowerSaveOff() {
 // packaged bundle (gamepad-helper beside drive.mjs). Empty on Linux / when unbuilt.
 const GAMEPAD_BIN = process.env.GAMEPAD_BIN ||
   [path.join(APP_DIR, "gamepad/gamepad_mac"), path.join(APP_DIR, "gamepad-helper"), findTool("input-helper")].find((p) => p && existsSync(p)) || "";
-// macOS keyboard helper: reads the raw keyboard so throttle+steer combine (mpv
-// only ever reports one key at a time). Same lookup shape as GAMEPAD_BIN.
-const KEYBOARD_BIN = process.env.KEYBOARD_BIN ||
-  [path.join(APP_DIR, "gamepad/keyboard_mac"), path.join(APP_DIR, "keyboard-helper"), findTool("input-helper")].find((p) => p && existsSync(p)) || "";
+const KEYBOARD_BIN = process.env.KEYBOARD_BIN || (process.platform === "win32" ? findTool("input-helper") || "" : "");
 
 // ---- gamepad: parse the joydev protocol (fixed 8-byte events) ---------------
 const axes = [];
@@ -241,21 +238,9 @@ function openGamepadMac(listMode = false) {
   process.once("exit", () => { try { helper.kill(); } catch { /* noop */ } });
 }
 
-// macOS keyboard helper: reads the PHYSICAL keyboard (all keys at once) via a
-// listen-only event tap, so throttle + steer combine — mpv's Lua only ever
-// reports the most-recent key. Emits the same "KEYS ..." lines the mpv Lua did;
-// we feed them straight to handleKeyLine. No-op on Linux (evdev already reports
-// every key through joydev), and a graceful fallback to the mpv keyboard when the
-// helper is missing or Input Monitoring isn't granted.
-function openKeyboardMac() {
-  if (!KEYBOARD_BIN || (!["darwin", "win32"].includes(process.platform) && !process.env.KEYBOARD_BIN)) return;
-  const probe = process.platform === "darwin" ? spawnSync(KEYBOARD_BIN, ["--probe"], { encoding: "utf8" }) : { status: 0, stdout: "OK" };
-  if (probe.status !== 0 || !/OK/.test(probe.stdout || "")) {
-    console.error("[keys] macOS keyboard helper needs Input Monitoring to combine throttle+steer.");
-    console.error("[keys] Grant it: System Settings > Privacy & Security > Input Monitoring (add WLtoys Drive, or your terminal for source launches), then relaunch.");
-    console.error("[keys] Using the mpv keyboard (one key at a time) until then.");
-    return;
-  }
+// Windows and explicit custom input helpers use the shared held-key protocol.
+function openKeyboardHelper() {
+  if (!KEYBOARD_BIN) return;
   let helper;
   try {
     helper = spawn(KEYBOARD_BIN, process.platform === "win32" ? ["--keyboard"] : [], { stdio: ["ignore", "pipe", "inherit"] });
@@ -396,13 +381,7 @@ function stopKeyboard() {
 }
 
 function writeHudLua() {
-  // Keyboard. With the native macOS helper active (kbHelperActive) it reads the
-  // raw keyboard and feeds handleKeyLine directly, so here we only SWALLOW our keys
-  // with no-op forced bindings — otherwise mpv's defaults (SPACE=pause,
-  // s=screenshot, …) fire mid-drive. Without the helper (Linux, or Input Monitoring
-  // ungranted) use the mpv path: complex FORCED bindings track a held-key SET and a
-  // 20 Hz timer writes the FULL set to the FIFO Node opened for reading (idempotent
-  // heartbeat — but one key at a time, the limit the helper removes).
+  // Native window/helper input owns the keys; swallow player shortcuts so Space cannot pause video.
   const keys = kbHelperActive || process.platform === "win32" ? `
 local function kswallow(k) mp.add_forced_key_binding(k, "wlk_" .. k, function() end, {complex = true}) end
 for _, k in ipairs({"w", "a", "s", "d", "UP", "DOWN", "LEFT", "RIGHT", "SPACE", "h", "r"}) do kswallow(k) end
@@ -553,6 +532,7 @@ function writeHudData() {
 // or {demo:true} (mpv-only: test pattern for previewing the OSD).
 function buildPlayer(src) {
   const mpv = findTool("mpv");
+  if (mpv && mpv === LOCAL_PLAYER) kbHelperActive = true;
   const ffplay = findTool("ffplay");
   const flatpakMpv = !mpv && process.platform === "linux" && spawnSync("flatpak", ["info", "io.mpv.Mpv"], { stdio: "ignore" }).status === 0;
   // Fullscreen on the Deck/Linux (Game Mode); windowed on macOS by default so it
@@ -605,6 +585,23 @@ function buildPlayer(src) {
   return null;
 }
 
+function attachPlayerInput(player, command) {
+  if (command !== LOCAL_PLAYER || !player.stdout) return;
+  let pending = "", previous = "";
+  player.stdout.on("data", (bytes) => {
+    pending += bytes;
+    let end;
+    while ((end = pending.indexOf("\n")) >= 0) {
+      const line = pending.slice(0, end).trim(); pending = pending.slice(end + 1);
+      if (process.env.KEYBOARD_VERBOSE === "1" && line !== previous) { console.error(`[keys] ${line}`); previous = line; }
+      handleKeyLine(line);
+    }
+    if (pending.length > 4096) pending = "";
+    txOnChange();
+  });
+  player.once("exit", () => handleKeyLine("KEYS -"));
+}
+
 function startVideo() {
   return VIDEO_MODE === "udp" ? startUdpVideo() : startRtspVideo();
 }
@@ -613,7 +610,9 @@ function startRtspVideo() {
   const p = buildPlayer({ rtsp: true });
   if (!p) { noPlayer(); return null; }
   console.error(`[video] rtsp ${RTSP_TRANSPORT}: ${p.cmd} ${p.args.join(" ")}`);
-  return spawn(p.cmd, p.args, { stdio: "inherit" });
+  const player = spawn(p.cmd, p.args, { stdio: ["ignore", p.cmd === LOCAL_PLAYER ? "pipe" : "inherit", "inherit"] });
+  attachPlayerInput(player, p.cmd);
+  return player;
 }
 
 // Is there an HEVC keyframe / parameter set in this frame? (skip frames until the
@@ -734,7 +733,8 @@ function startUdpVideo() {
   const p = buildPlayer({ pipe: true });
   if (!p) { noPlayer(); return null; }
   console.error(`[video] udp raw-hevc :${CAM_VID_PORT}: ${p.cmd} ${p.args.join(" ")}`);
-  const player = spawn(p.cmd, p.args, { stdio: ["pipe", "inherit", "inherit"] });
+  const player = spawn(p.cmd, p.args, { stdio: ["pipe", p.cmd === LOCAL_PLAYER ? "pipe" : "inherit", "inherit"] });
+  attachPlayerInput(player, p.cmd);
   player.stdin.on("error", () => {}); // ignore EPIPE when the window closes
 
   const cmdSock = dgram.createSocket("udp4");
@@ -845,7 +845,8 @@ async function pickCarOnOsd(cars, opts = {}) {
   const timeoutMs = Number(opts.timeoutMs ?? 45000);
   const p = buildPlayer({ demo: true });
   if (!p) return null; // no mpv -> no overlay surface; caller degrades
-  const player = spawn(p.cmd, p.args, { stdio: ["ignore", "inherit", "inherit"] });
+  const player = spawn(p.cmd, p.args, { stdio: ["ignore", p.cmd === LOCAL_PLAYER ? "pipe" : "inherit", "inherit"] });
+  attachPlayerInput(player, p.cmd);
   picking = true;
   let idx = 0;
 
@@ -891,7 +892,7 @@ async function pickCarOnOsd(cars, opts = {}) {
 // Preview the OSD over a test pattern with animated inputs — no car or gamepad
 // needed. Inputs sweep continuously; REC engages at 3s; 8-11s simulates signal loss.
 function hudDemo() {
-  openKeyboardMac(); // lets you exercise the macOS keyboard helper over the demo (no car needed)
+  openKeyboardHelper();
   const p = buildPlayer({ demo: true });
   if (!p) { console.error("HUD demo needs mpv."); return; }
   console.error(`[hud-demo] ${p.cmd} ${p.args.join(" ")}`);
@@ -910,7 +911,8 @@ function hudDemo() {
     recording = rec;
     writeHudData();
   }, 100);
-  const player = spawn(p.cmd, p.args, { stdio: "inherit" });
+  const player = spawn(p.cmd, p.args, { stdio: ["ignore", p.cmd === LOCAL_PLAYER ? "pipe" : "inherit", "inherit"] });
+  attachPlayerInput(player, p.cmd);
   player.on("exit", (code) => { clearInterval(timer); stopKeyboard(); process.exit(code || 0); });
   player.on("error", (e) => { console.error(`[video] ${e.message}`); clearInterval(timer); stopKeyboard(); process.exit(1); });
 }
@@ -1855,7 +1857,7 @@ async function main() {
   openGamepad(false);
   await connectCar();
   wifiPowerSaveOff();
-  openKeyboardMac(); // macOS: prefer the raw-keyboard helper (multi-key) over mpv's one-key path
+  openKeyboardHelper();
   const video = startVideo();
   if (!video) { stopKeyboard(); process.exit(1); }
   controlLive = true; // arm send-on-change (input handlers were no-ops until now)

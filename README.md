@@ -56,12 +56,10 @@ Development branch packages are also available as artifacts of the
 Joining the car's Wi-Fi normally disconnects that device from the internet.
 The app already contains everything it needs to drive offline.
 
-On macOS, combining keyboard throttle and steering needs **Input Monitoring**:
-System Settings → Privacy & Security → Input Monitoring → enable **WLtoys Drive**,
-then relaunch. Source launches may instead need the terminal enabled. Without
-this permission, the mpv fallback supports one held key at a time; controllers
-still combine steering and throttle. Keyboard input on Mac and Windows is
-ignored when the driving window is unfocused. Controller input remains live.
+Mac keyboard input stays inside the focused video window. **Input Monitoring
+and Accessibility permission are not required.** Leaving the window clears held
+keys immediately. Windows also ignores driving keys when its video window is
+unfocused. Controller input remains live.
 
 macOS and Windows open windowed by default. Linux/Deck uses fullscreen;
 `FULLSCREEN=1` or `FULLSCREEN=0` overrides the default.
@@ -144,8 +142,10 @@ whatever network is already joined. All existing configuration below still appli
 
 Keyboard steering requires no controller and works while the mpv window has focus.
 Releasing all keys returns to neutral; a failsafe forces neutral if the input
-stalls. Gamepad and keyboard can be used together. On macOS, holding throttle *and*
-steer at once needs the keyboard helper with Input Monitoring granted (see Connect and drive); without it mpv passes only one key at a time.
+stalls. Gamepad and keyboard can be used together. The Mac download includes a
+native video window that handles simultaneous keys locally. Source users should
+build that player with `bash gamepad/build-mac.sh`; regular mpv alone retains
+the one-held-key fallback.
 
 Run `./run.sh --list` to print live axis and button numbers for mapping a controller.
 
@@ -192,7 +192,6 @@ Set via Steam Launch Options (`VAR=value %command%`) or inline (`VAR=value ./run
 | `NO_AUTOCONNECT` | off | `1` disables auto-join and reconnect |
 | `VIDEO_MODE` | `udp` | `udp` (low-latency) or `rtsp` (fallback) |
 | `FULLSCREEN` | Linux on / Mac+Windows off | `1` fullscreen, `0` windowed (Mac defaults windowed) |
-| `KB_FOCUS_MATCH` | `mpv` / bundled app | frontmost-app name that enables keyboard driving (macOS) |
 | `STEER_AXIS` | `0` | Steering axis |
 | `THROTTLE_MODE` | `trigger` | `trigger` (RT/LT + A/B) or `stick` |
 | `RT_AXIS` / `LT_AXIS` | `5` / `2` | Trigger axes (forward / reverse) |
@@ -208,7 +207,7 @@ Set via Steam Launch Options (`VAR=value %command%`) or inline (`VAR=value ./run
 | `WIFI_IFACE` | auto | Interface for WiFi power-save (Linux) |
 | `JS_DEVICE` | first `/dev/input/js*` | Controller device (Linux) |
 | `GAMEPAD_BIN` | auto | Controller helper path (macOS/Windows) |
-| `KEYBOARD_BIN` | auto | Keyboard helper override; Mac/Windows use native helpers |
+| `KEYBOARD_BIN` | auto | Explicit custom keyboard helper override; Windows defaults to its native helper |
 
 ## Troubleshooting
 
@@ -223,10 +222,9 @@ Set via Steam Launch Options (`VAR=value %command%`) or inline (`VAR=value ./run
   `bash install.sh` (Deck) or `brew install mpv` (macOS).
 - **macOS: no controller input** — build the helper with `bash gamepad/build-mac.sh`,
   or use the keyboard.
-- **macOS: keyboard won't combine throttle + steer** (pressing turn drops forward) —
-  grant the keyboard helper Input Monitoring (System Settings → Privacy & Security →
-  Input Monitoring, add WLtoys Drive (or your terminal for source), relaunch). If it's missing entirely, build it
-  with `bash gamepad/build-mac.sh`. This is an mpv limitation the helper works around.
+- **macOS source keyboard won't combine throttle and steering** — build the native
+  player with `bash gamepad/build-mac.sh`, then relaunch. The standalone download
+  already includes it; no global keyboard permission is needed.
 - **A control is wrong** — run `./run.sh --list` to read axis/button numbers and set
   the matching variables above.
 - **Preview without hardware** — `./run.sh --hud-demo` renders the OSD over a test

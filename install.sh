@@ -99,18 +99,7 @@ if [ "$PLATFORM" = "macos-arm64" ]; then
     rm -f "$HERE/gamepad-helper"
     echo "[pad]  gamepad helper not in release — use keyboard steering (WASD)"
   fi
-  # Keyboard helper — reads the raw keyboard so throttle+steer COMBINE (mpv only
-  # ever reports one key at a time). Optional: without it, keyboard driving falls
-  # back to the mpv path (one key at a time). Needs Input Monitoring at runtime.
-  if curl -fsSL "https://github.com/$REPO/releases/latest/download/keyboard-helper-macos-arm64" \
-       -o "$HERE/keyboard-helper" 2>/dev/null; then
-    chmod +x "$HERE/keyboard-helper"
-    xattr -d com.apple.quarantine "$HERE/keyboard-helper" 2>/dev/null || true
-    echo "[keys] keyboard helper installed — grant it Input Monitoring in System Settings to combine throttle+steer"
-  else
-    rm -f "$HERE/keyboard-helper"
-    echo "[keys] keyboard helper not in release — mpv keyboard fallback (one key at a time)"
-  fi
+
 fi
 
 chmod +x "$HERE/run.sh"

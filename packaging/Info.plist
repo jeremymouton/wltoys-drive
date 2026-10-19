@@ -8,6 +8,7 @@
 <key>CFBundleShortVersionString</key><string>VERSION</string>
 <key>CFBundleVersion</key><string>1</string>
 <key>LSMinimumSystemVersion</key><string>MIN_OS</string>
+<key>LSUIElement</key><true/>
 <key>NSHighResolutionCapable</key><true/>
 <key>NSLocalNetworkUsageDescription</key><string>Connect to your WLtoys car for driving and camera video.</string>
 </dict></plist>

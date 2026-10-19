@@ -2,7 +2,7 @@
 # Build the macOS gamepad helper: GameController framework -> the existing 8-byte
 # joydev event format on stdout (the exact bytes drive.mjs's feedJoyBytes parses).
 #
-# Needs only the Xcode Command Line Tools (swiftc) — NO full Xcode / xcodebuild.
+# Needs Xcode Command Line Tools and Homebrew mpv (including libmpv headers).
 # The Info.plist is embedded into the binary via the linker so
 # GCController.controllers() actually populates.
 #
@@ -23,10 +23,9 @@ swiftc -target arm64-apple-macos14.0 -O "$DIR/gamepad_mac.swift" -o "$DIR/gamepa
 
 echo "built $DIR/gamepad_mac"
 
-# Keyboard helper — reads the physical keyboard (all keys at once) via CGEventTap
-# so throttle + steer combine, working around mpv delivering only one key at a
-# time. No Info.plist (not GameController). Needs "Input Monitoring" at runtime.
-swiftc -target arm64-apple-macos14.0 -O "$DIR/keyboard_mac.swift" -o "$DIR/keyboard_mac" \
-  -framework CoreGraphics -framework Foundation -framework AppKit
-
-echo "built $DIR/keyboard_mac"
+# The player owns its Cocoa window, so keyboard events never need a global tap.
+MPV_PREFIX="$(brew --prefix mpv)"
+clang -fobjc-arc -fblocks -O2 -mmacosx-version-min=14.0 "$DIR/player_mac.m" \
+  -I"$MPV_PREFIX/include" -L"$MPV_PREFIX/lib" -lmpv \
+  -framework Cocoa -framework OpenGL -o "$DIR/player_mac"
+echo "built $DIR/player_mac"

@@ -10,8 +10,13 @@ process.once("exit", () => {
   try { fs.rmSync(SESSION_DIR, { recursive: true, force: true }); } catch {}
 });
 
+export const LOCAL_PLAYER = process.platform === "darwin"
+  ? [path.join(APP_DIR, "Player.app/Contents/MacOS/wltoys-player"), path.join(APP_DIR, "gamepad/player_mac")].find(fs.existsSync) || null
+  : null;
+
 export function findTool(name) {
   if (name === "mpv" && process.env.MPV_BIN) return process.env.MPV_BIN;
+  if (name === "mpv" && LOCAL_PLAYER) return LOCAL_PLAYER;
   const filename = process.platform === "win32" ? `${name}.exe` : name;
   for (const dir of [BIN_DIR, ...(name === "input-helper" ? [path.join(APP_DIR, "gamepad")] : []), ...(process.env.PATH || "").split(path.delimiter)]) {
     if (!dir) continue;

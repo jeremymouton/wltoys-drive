@@ -30,6 +30,10 @@ try {
   const env = { ...process.env, HOME: home, USERPROFILE: home, TMPDIR: home, TMP: home, TEMP: home, NO_AUTOCONNECT: "1", PATH: process.platform === "win32" ? `${process.env.SystemRoot}\\System32;${process.env.SystemRoot}` : "/usr/bin:/bin:/usr/sbin:/sbin" };
   if (process.platform === "darwin") {
     run("codesign", ["--verify", "--deep", "--strict", top]);
+    if (fs.existsSync(path.join(app, "keyboard-helper")) || manifest.macKeyboardInput !== "window-local") throw Error("Mac global keyboard helper must not ship");
+    if (!fs.existsSync(path.join(app, "Player.app/Contents/MacOS/wltoys-player"))) throw Error("Native Mac player missing");
+    const keyboard = run(path.join(app, "Player.app/Contents/MacOS/wltoys-player"), ["--input-selftest"], { env });
+    if (!keyboard.includes("PASS window-local") || (keyboard.match(/^HUD$/gm) || []).length !== 1 || (keyboard.match(/^REC$/gm) || []).length !== 1) throw Error("Mac local input regression check failed");
     for (const file of [mpv, ...fs.readdirSync(path.join(app, "lib")).map((s) => path.join(app, "lib", s))]) {
       if (/\/(opt\/homebrew|usr\/local)\//.test(run("otool", ["-L", file]))) throw Error(`Host library leak: ${file}`);
     }
