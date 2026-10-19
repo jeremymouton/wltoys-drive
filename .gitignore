@@ -24,3 +24,7 @@ gamepad/keyboard_mac
 gamepad-helper
 keyboard-helper
 *.dSYM/
+
+# Standalone build outputs
+dist/
+gamepad/input-helper.exe

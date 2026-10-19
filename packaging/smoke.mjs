@@ -78,6 +78,19 @@ end)
     }
     if (!packets.slice(-6).every((p) => p[9] === 128 && p[10] === 128)) throw Error("Shutdown failed to neutralize");
     console.log(`UDP/video smoke: ${packets.length} valid packets, ${frameId} HEVC frames; neutral shutdown`);
+    if (streaming) throw Error("Camera did not receive STOP on shutdown");
+    const beforeFailure = packets.length;
+    const broken = spawn(node, [path.join(app, "drive.mjs")], {
+      cwd: home, env: { ...env, CAR_IP: "127.0.0.1", NO_AUTOCONNECT: "1", KEYBOARD_BIN: helper,
+        GAMEPAD_BIN: path.join(home, "absent-gamepad"), JS_DEVICE: path.join(home, "absent-gamepad"), MPV_BIN: path.join(home, "absent-player") },
+      stdio: ["ignore", "pipe", "pipe"],
+    });
+    let failure = ""; broken.stdout.resume(); broken.stderr.on("data", (b) => failure += b);
+    const failureTimeout = setTimeout(() => broken.kill("SIGKILL"), 5000);
+    const [failureCode] = await once(broken, "exit"); clearTimeout(failureTimeout);
+    const afterFailure = packets.slice(beforeFailure);
+    if (failureCode !== 1 || afterFailure.length < 6 || !afterFailure.every((p) => p[9] === 128 && p[10] === 128)) throw Error(`Player launch failure did not stop safely: ${failure}`);
+    console.log("PASS player launch failure: explicit failure and neutral UDP burst");
   } finally {
     clearInterval(sender); clearTimeout(timeout); child.kill(); control.close(); camera.close();
   }

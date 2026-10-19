@@ -739,9 +739,24 @@ function startUdpVideo() {
 
   const cmdSock = dgram.createSocket("udp4");
   cmdSock.on("error", () => {});
-  const sendCam = (b) => cmdSock.send(b, CAM_CMD_PORT, CAR_IP);
-  player._camStop = () => { try { sendCam(CAM_STOP); } catch {} };
-  player._camStart = () => { try { sendCam(CAM_START); } catch {} }; // W4: re-arm the stream after a rejoin
+  let stopped = false, commandReady = false, receiverReady = false, restartTimer = null;
+  const sendCam = (b) => {
+    if (stopped || !commandReady) return;
+    try { cmdSock.send(b, CAM_CMD_PORT, CAR_IP, () => {}); } catch {}
+  };
+  const restartCam = () => {
+    if (stopped || !commandReady || !receiverReady) return;
+    sendCam(CAM_STOP);
+    clearTimeout(restartTimer);
+    restartTimer = setTimeout(() => sendCam(CAM_START), 250);
+  };
+  player._camStop = () => sendCam(CAM_STOP);
+  player._camStart = restartCam;
+  cmdSock.bind(0, () => {
+    commandReady = true;
+    if (stopped) { cmdSock.close(); return; }
+    restartCam();
+  });
 
   const rx = dgram.createSocket("udp4");
   rx.on("error", (e) => console.error(`[video] udp rx error: ${e.message}`));
@@ -759,7 +774,11 @@ function startUdpVideo() {
       if (recWriting) { try { recStream.write(f); recBytes += f.length; } catch { /* stream died */ } }
     }
   });
-  rx.bind(CAM_VID_PORT, () => { sendCam(CAM_STOP); setTimeout(() => sendCam(CAM_START), 250); });
+  rx.bind(CAM_VID_PORT, () => {
+    receiverReady = true;
+    if (stopped) { rx.close(); return; }
+    restartCam();
+  });
 
   // watchdog: if the feed stalls (car hiccup / WiFi blip), re-request the stream.
   // A BARE START does not revive a dead stream — observed in the field: the feed
@@ -771,8 +790,7 @@ function startUdpVideo() {
     if (Date.now() - lastRx > 3000) {
       stalls++;
       console.error(`[video] stream stalled — restarting camera (STOP → START)${stalls > 1 ? ` [${stalls}]` : ""}`);
-      sendCam(CAM_STOP);
-      setTimeout(() => sendCam(CAM_START), 250);
+      restartCam();
       lastRx = Date.now(); // next check is a full window away
       if (stalls === 4) console.error("[video] still nothing after 4 restarts — check the car is powered and still on its AP");
     } else if (stalls && Date.now() - lastRx < 1000) {
@@ -799,11 +817,16 @@ function startUdpVideo() {
   }
 
   const clean = () => {
+    if (stopped) return;
+    stopped = true;
+    clearTimeout(restartTimer);
     clearInterval(watchdog);
     if (statTimer) clearInterval(statTimer);
-    player._camStop();
-    try { rx.close(); } catch {}
-    try { cmdSock.close(); } catch {}
+    if (receiverReady) try { rx.close(); } catch {}
+    if (commandReady) {
+      const closeCommand = () => { try { cmdSock.close(); } catch {} };
+      try { cmdSock.send(CAM_STOP, CAM_CMD_PORT, CAR_IP, closeCommand); } catch { closeCommand(); }
+    }
   };
   player.on("exit", clean);
   player.on("error", clean);

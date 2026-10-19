@@ -35,11 +35,16 @@ try {
     }
   }
   if (!run(node, ["--version"], { env }).includes(manifest.node)) throw Error("Wrong Node runtime version");
-  const launch = process.platform === "darwin" ? path.join(top, "Contents/MacOS/wltoys-drive") : process.platform === "linux" ? path.join(top, "wltoys-drive") : node;
-  const args = process.platform === "win32" ? [path.join(app, "drive.mjs"), "--selftest"] : ["--selftest"];
+  const launch = process.platform === "darwin" ? path.join(top, "Contents/MacOS/wltoys-drive") : process.platform === "linux" ? path.join(top, "wltoys-drive") : path.join(top, "WLtoys Drive.exe");
+  const args = ["--selftest"];
   console.log("Checking launcher self-test");
-  const checks = run(launch, args, { env, cwd: home });
+  let checks = run(launch, args, { env, cwd: home });
+  if (process.platform === "win32") checks = fs.readFileSync(path.join(home, "wltoys-drive.log"), "utf8");
   if (checks.includes("FAIL") || !checks.includes("checksum")) throw Error("Packaged self-test failed");
+  if (process.platform === "linux") {
+    run(node, [path.join(app, "desktop-shortcut.mjs")], { env, cwd: home });
+    if (!fs.readFileSync(path.join(home, ".local/share/applications/wltoys-drive.desktop"), "utf8").includes("Name=WLtoys Drive")) throw Error("Desktop shortcut missing");
+  }
   console.log("Checking bundled mpv decode");
   const playback = run(mpv, ["--terminal=yes", "--no-config", "--vo=null", "--ao=null", "--frames=4", "av://lavfi:testsrc2=size=128x72:rate=25"], { env, cwd: home });
   if (!playback.includes("VO:")) throw Error("Bundled mpv did not decode video");
@@ -54,5 +59,5 @@ try {
   console.log(`PASS ${manifest.target}: extracted launch, runtime, player, HUD, UDP video/control, failsafes and notices`);
   if (process.env.KEEP_PACKAGE_CHECK) console.log(`Extracted package: ${top}`);
 } finally {
-  if (!process.env.KEEP_PACKAGE_CHECK) fs.rmSync(temp, { recursive: true, force: true });
+  if (!process.env.KEEP_PACKAGE_CHECK) fs.rmSync(temp, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
 }
