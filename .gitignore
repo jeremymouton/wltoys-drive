@@ -28,3 +28,4 @@ keyboard-helper
 # Standalone build outputs
 dist/
 gamepad/input-helper.exe
+gamepad/player_mac

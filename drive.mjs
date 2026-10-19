@@ -253,9 +253,8 @@ function openKeyboardHelper() {
   helper.stdout.on("data", (d) => {
     buf += d;
     let i;
-    while ((i = buf.indexOf("\n")) >= 0) { handleKeyLine(buf.slice(0, i)); buf = buf.slice(i + 1); }
+    while ((i = buf.indexOf("\n")) >= 0) { handleKeyLine(buf.slice(0, i)); txOnChange(); buf = buf.slice(i + 1); }
     if (buf.length > 4096) buf = ""; // a newline-less flood can't grow the buffer forever
-    txOnChange();
   });
   helper.on("error", (e) => console.error(`[keys] keyboard helper error: ${e.message}`));
   helper.on("exit", () => { kbHelperActive = false; }); // helper gone -> heartbeat goes stale -> failsafe neutral
@@ -313,7 +312,7 @@ const KB_FAILSAFE_MS = 250; // no heartbeat within this window -> force neutral
 const kbState = { steer: 0, fwd: false, rev: false };
 let kbStop = false;
 let kbLastKeys = 0; // ms of the last KEYS heartbeat (0 = none yet -> inactive)
-let kbHelperActive = false; // macOS native keyboard helper is feeding handleKeyLine (full multi-key)
+let kbHelperActive = false; // a native player/helper owns the keyboard channel
 let kbStream = null;
 
 // Parse one held-key heartbeat line into kbState, recomputed fresh each call.
@@ -595,9 +594,9 @@ function attachPlayerInput(player, command) {
       const line = pending.slice(0, end).trim(); pending = pending.slice(end + 1);
       if (process.env.KEYBOARD_VERBOSE === "1" && line !== previous) { console.error(`[keys] ${line}`); previous = line; }
       handleKeyLine(line);
+      txOnChange();
     }
     if (pending.length > 4096) pending = "";
-    txOnChange();
   });
   player.once("exit", () => handleKeyLine("KEYS -"));
 }
