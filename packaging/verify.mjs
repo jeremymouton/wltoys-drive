@@ -10,7 +10,7 @@ if (!fs.statSync(archive).isFile()) throw Error("Pass a built platform archive")
 const temp = fs.mkdtempSync(path.join(os.tmpdir(), "wltoys package 'check' "));
 const run = (cmd, args, options = {}) => {
   const r = spawnSync(cmd, args, { encoding: "utf8", timeout: 60000, maxBuffer: 8 * 1024 * 1024, ...options });
-  if (r.error || r.status !== 0) throw Error(`${cmd}: ${r.error?.message || r.stderr || r.stdout}`);
+  if (r.error || r.status !== 0) throw Error(`${cmd} (exit ${r.status}, signal ${r.signal}): ${r.error?.message || r.stderr || r.stdout}`);
   return r.stdout;
 };
 try {
@@ -37,7 +37,7 @@ try {
   const args = process.platform === "win32" ? [path.join(app, "drive.mjs"), "--selftest"] : ["--selftest"];
   const checks = run(launch, args, { env, cwd: home });
   if (checks.includes("FAIL") || !checks.includes("checksum")) throw Error("Packaged self-test failed");
-  const playback = run(mpv, ["--no-config", "--vo=null", "--ao=null", "--frames=4", "av://lavfi:testsrc2=size=128x72:rate=25"], { env, cwd: home });
+  const playback = run(mpv, ["--terminal=yes", "--no-config", "--vo=null", "--ao=null", "--frames=4", "av://lavfi:testsrc2=size=128x72:rate=25"], { env, cwd: home });
   if (!playback.includes("VO:")) throw Error("Bundled mpv did not decode video");
   if (process.platform === "win32") {
     const helper = path.join(app, "bin/input-helper.exe");

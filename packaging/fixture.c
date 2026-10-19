@@ -14,6 +14,10 @@ int main(int argc, char **argv) {
     if (argc > 1 && !strcmp(argv[1], "--probe")) { puts("OK"); return 0; }
     if (argc == 1 || (argc == 2 && !strcmp(argv[1], "--keyboard"))) {
         for (int i = 0; i < 600; i++) {
+            if (i == 40) { fputs("fixture:turn\n", stderr); fflush(stderr); }
+            if (i == 70) { fputs("fixture:release\n", stderr); fflush(stderr); }
+            if (i == 90) { fputs("fixture:forward\n", stderr); fflush(stderr); }
+            if (i == 110) { fputs("fixture:stale\n", stderr); fflush(stderr); }
             if (i < 40) puts("KEYS -");
             else if (i < 70) puts("KEYS w d");
             else if (i < 90) puts("KEYS -");

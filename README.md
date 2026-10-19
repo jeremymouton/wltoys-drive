@@ -5,101 +5,122 @@
 *Product photos with the app's HUD over an illustrative FPV scene.
 [Image sources](assets/readme/sources.json).*
 
-Native driver for the WLtoys 6401 1/64 WiFi FPV car. Fullscreen mpv video with an
-FPV-style OSD and gamepad or keyboard control, read straight from the OS — no
-browser, no phone app, no Steam Input layer. Runs on the Steam Deck / Linux and on
-Apple-Silicon macOS.
+Native driver for the WLtoys 6401 1/64 WiFi FPV car. Live camera video with an
+FPV-style HUD, keyboard or gamepad driving, and direct Wi-Fi connection to your
+own car. Runs locally and works without internet after downloading.
 
-Tested only on the WLtoys 6401. The control protocol, camera commands, and video
-feed were reverse-engineered from that model; other models or firmware revisions
-may not respond and are unsupported.
+Tested only on the WLtoys 6401. Other models and firmware revisions are unsupported.
 
-## Requirements
+## Download and launch
 
-- **Steam Deck / Linux** — NetworkManager (default on SteamOS), `flatpak` for mpv.
-  `install.sh` sets up Node and mpv.
-- **macOS (Apple Silicon)** — Homebrew (`install.sh` uses it to install mpv). Node,
-  mpv, and the prebuilt gamepad helper are all set up by `install.sh`. Only building
-  the controller helper *from source* needs the Xcode Command Line Tools
-  (`xcode-select --install`); the prebuilt helper and keyboard steering don't.
+Get the matching **platform asset** from the
+[latest release](https://github.com/jeremymouton/wltoys-drive/releases/latest),
+then extract the entire archive. The platform downloads contain Node, mpv and
+native helpers; there is no runtime installation step.
 
-Joining the car's access point removes the device's internet while connected — a
-single WiFi radio can only be on one network at a time.
+| Platform | Download | Launch |
+|---|---|---|
+| macOS, Apple Silicon | `wltoys-drive-macos-arm64.zip` | Open **WLtoys Drive.app**; optionally move it to Applications |
+| Steam Deck / Linux x64 | `wltoys-drive-linux-x64.tar.gz` | Open **wltoys-drive** from the extracted folder |
+| Windows 10/11 x64 | `wltoys-drive-windows-x64.zip` | Open **WLtoys Drive.exe** from the extracted folder |
 
-## Steam Deck / Linux
+macOS release builds use macOS 14 runners; the bundle's Info.plist records the
+actual minimum OS required by its binaries. Locally built bundles can require a
+newer macOS. Linux builds target Ubuntu 22.04's glibc baseline (2.35), including
+SteamOS; systems with older glibc or without NetworkManager are not supported
+for automatic Wi-Fi connection. Windows gamepads must support **XInput** (Xbox
+controllers and compatible devices); keyboard driving needs no controller.
+Intel Macs, Windows ARM64 and Linux ARM64 are not release targets.
 
-### Install
+The Mac app is ad-hoc signed, **not Apple-notarized**. Windows builds are
+unsigned. OS download protections can therefore require your normal approval
+before opening them. Published assets include `SHA256SUMS`, dependency notices
+and a `build.json` recording dependency versions and sources.
 
-Run in Desktop Mode (STEAM → Power → Switch to Desktop).
+Development branch packages are also available as artifacts of the
+[Standalone apps workflow](https://github.com/jeremymouton/wltoys-drive/actions/workflows/release.yml).
 
-1. Download the source zip from the [latest release](https://github.com/jeremymouton/wltoys-drive/releases/latest) and extract it.
-2. Open a terminal in the extracted folder (right-click → Open Terminal Here).
-3. On WiFi with internet, run:
-   ```bash
-   bash install.sh
-   ```
-   This installs a portable Node and mpv. Run it with `bash` — the download is not
-   marked executable.
-4. In Dolphin, right-click `run.sh` → Add to Steam.
-5. Return to Game Mode.
+## Connect and drive
 
-### Drive
+1. Turn the car on with its physical remote **off**, then wait for the camera's
+   green light.
+2. Launch the app. Linux/Deck and Windows look for nearby car networks; macOS
+   offers previously joined cars. If Wi-Fi permission is unavailable or the car
+   is new, use your system Wi-Fi settings to join **WL FPV CAR …**. The password
+   is the **last eight digits** of the network name. If joining manually, join
+   before launching the app, or close and reopen it afterward.
+3. Click the video window, then drive with WASD/arrows or your gamepad. Close
+   the video window to stop and exit. **Space** sends neutral, including when
+   a controller's throttle is held.
 
-1. Turn the car on with the physical remote off and wait for the camera's green light.
-2. Launch the `run.sh` shortcut. It scans for the car, joins its WiFi, and starts
-   the video. If several cars are in range it prompts for one; in Game Mode it picks
-   the first.
-3. Exit with STEAM → Exit Game.
+Joining the car's Wi-Fi normally disconnects that device from the internet.
+The app already contains everything it needs to drive offline.
 
-## macOS (Apple Silicon)
+On macOS, combining keyboard throttle and steering needs **Input Monitoring**:
+System Settings → Privacy & Security → Input Monitoring → enable **WLtoys Drive**,
+then relaunch. Source launches may instead need the terminal enabled. Without
+this permission, the mpv fallback supports one held key at a time; controllers
+still combine steering and throttle. Keyboard input on Mac and Windows is
+ignored when the driving window is unfocused. Controller input remains live.
 
-### Install
+macOS and Windows open windowed by default. Linux/Deck uses fullscreen;
+`FULLSCREEN=1` or `FULLSCREEN=0` overrides the default.
 
-Needs [Homebrew](https://brew.sh) — `install.sh` uses it to install mpv.
+## Steam Deck
 
-1. Download the source zip from the [latest release](https://github.com/jeremymouton/wltoys-drive/releases/latest) and extract it, or clone the repo.
-2. On WiFi with internet, from the app folder:
-   ```bash
-   bash install.sh
-   ```
-   This installs a portable Node in `~/wltoys-runtime`, mpv (via Homebrew), and the
-   prebuilt macOS gamepad and keyboard helpers. Run it with `bash` — the download is
-   not marked executable.
+Extract the Linux download in Desktop Mode, right-click **wltoys-drive** in
+Dolphin and choose **Add to Steam**. Return to Game Mode and launch that shortcut.
+If your file manager asks about execution permission, mark the launcher executable.
+Keep the app on an executable filesystem, not a `noexec` SD-card mount.
+The package does not modify SteamOS or install system packages.
 
-That's everything — for controller support you don't need to build anything; the
-installer fetches prebuilt helpers. If a download is ever unavailable, build them
-from source with `bash gamepad/build-mac.sh` (needs the Xcode Command Line Tools).
+For a Linux applications-menu entry, run **Install desktop shortcut.sh** once
+from the extracted folder. It creates only a user desktop entry; moving the app
+folder requires running it again. Game Mode car selection uses the gamepad and
+on-screen picker. `JS_DEVICE` can select another Linux joystick device.
 
-**Combining keyboard throttle + steer** (e.g. hold forward *and* turn) needs one extra
-step on macOS: grant the keyboard helper **Input Monitoring**. mpv only reports one key
-at a time, so the helper reads the keyboard directly — which macOS gates behind
-**Input Monitoring**. Many terminals already have this granted, so it often just works.
-If combining doesn't (you'll see a `[keys]` note on launch), open **System Settings →
-Privacy & Security → Input Monitoring**, enable your terminal, and relaunch. Without
-it, keyboard driving still works one key at a time (a controller combines regardless).
+## Updates and logs
 
-The video opens **windowed** on macOS (`FULLSCREEN=1` to force fullscreen), and the car
-only steers **while the video window is focused** — keys typed in other apps are ignored.
-Click the video window to drive; click away to hold neutral.
+To update a standalone app, close it and extract the new platform download.
+Keep the whole package together; don't replace only the launcher executable.
+Saved trim (`~/.wltoys-trim`), the last car (`~/.wltoys-car`) and recordings
+(`~/Videos`) live in your user folder. HUD and keyboard transport files use a
+private temporary directory per session. GUI-launch logs are written to
+`~/wltoys-drive.log` (your user profile folder on Windows).
 
-If mpv is installed but not found, ensure `/opt/homebrew/bin` is on your PATH.
+## Run or build from source
 
-### Drive
+Source launchers remain available on Linux/Deck and Apple-Silicon macOS:
 
-1. Turn the car on with the physical remote off and wait for the camera's green light.
-2. From the app folder, run:
-   ```bash
-   ./run.sh
-   ```
-   It discovers cars you have joined before and shows a native dialog to connect: one
-   saved car asks you to confirm, several let you choose. If you have never joined the
-   car, it opens Wi-Fi settings so you can pick it once (its name is `WL FPV CAR …`
-   and the password is the last 8 digits). To skip discovery and join a specific car
-   directly, set `CAR_SSID`:
-   ```bash
-   CAR_SSID="WL FPV CAR 75899112" ./run.sh
-   ```
-3. Exit by closing the video window or pressing Ctrl-C.
+```bash
+bash install.sh  # downloads portable Node; installs mpv via Flatpak or Homebrew
+bash run.sh
+```
+
+macOS source setup needs Homebrew. Building the Mac helpers also needs Xcode
+Command Line Tools (`bash gamepad/build-mac.sh`). Windows source runs need Node,
+mpv on PATH, and a built helper (`powershell -File gamepad/build-windows.ps1`,
+with MinGW GCC available), then `node drive.mjs`.
+
+Build a platform package **on that platform**:
+
+```bash
+node packaging/build.mjs
+node packaging/verify.mjs dist/wltoys-drive-macos-arm64.zip  # select your archive
+```
+
+Build prerequisites: macOS has Xcode Command Line Tools, Homebrew and mpv;
+Linux has GCC, mpv and Debian package metadata; Windows has MinGW GCC and 7-Zip.
+Packaging downloads and verifies a pinned Node runtime and Windows player;
+Mac/Linux player dependencies come from the build machine and are recorded in
+the manifest. See `.github/workflows/release.yml` for the release build environment.
+Tagged builds publish all three packages only after their native checks pass.
+
+`bash update.sh` updates source installations only. It deliberately refuses
+portable app folders. `node drive.mjs --selftest` checks protocol/input logic;
+`--hud-demo` previews video and HUD without a car, and `--list` reports gamepad
+mapping. `CAR_SSID="WL FPV CAR 75899112"` pins the car; `NO_AUTOCONNECT=1` uses
+whatever network is already joined. All existing configuration below still applies.
 
 ## Controls
 
@@ -124,8 +145,7 @@ If mpv is installed but not found, ensure `/opt/homebrew/bin` is on your PATH.
 Keyboard steering requires no controller and works while the mpv window has focus.
 Releasing all keys returns to neutral; a failsafe forces neutral if the input
 stalls. Gamepad and keyboard can be used together. On macOS, holding throttle *and*
-steer at once needs the keyboard helper with Input Monitoring granted (see the macOS
-Install section); without it mpv passes only one key at a time.
+steer at once needs the keyboard helper with Input Monitoring granted (see Connect and drive); without it mpv passes only one key at a time.
 
 Run `./run.sh --list` to print live axis and button numbers for mapping a controller.
 
@@ -134,8 +154,11 @@ Run `./run.sh --list` to print live axis and button numbers for mapping a contro
 The driver joins the car's WiFi on launch and rejoins it if the link drops.
 
 - **Steam Deck / Linux** scans for `WL FPV CAR …` networks and connects. One match
-  joins directly; multiple prompt for a choice (first is auto-picked in Game Mode);
+  joins directly; multiple show a picker (on screen in Game Mode);
   an existing car connection is reused.
+- **Windows** uses the native WLAN API to scan/join and checks the car gateway
+  when Windows hides the SSID. If Location/Wi-Fi permissions prevent discovery,
+  it opens Windows Wi-Fi settings for manual joining.
 - **macOS** cannot scan from the command line, so it discovers cars from your saved
   (preferred) networks and shows a native dialog to connect — one match asks you to
   confirm, several let you choose. A never-joined car opens Wi-Fi settings once so you
@@ -158,18 +181,6 @@ Recording starts at the next keyframe so the clip is playable from the first fra
 If you hit record before the video feed is up, nothing is captured — the empty file
 is removed and the reason is printed rather than leaving a 0-byte clip behind.
 
-## Updating
-
-On WiFi with internet, from the app folder:
-
-```bash
-bash update.sh
-```
-
-This replaces the app files with the latest release in place. The Steam shortcut,
-trim setting (`~/.wltoys-trim`), and runtime (`~/wltoys-runtime`) are preserved. On
-macOS it also refreshes the gamepad helper.
-
 ## Configuration
 
 Set via Steam Launch Options (`VAR=value %command%`) or inline (`VAR=value ./run.sh`).
@@ -180,8 +191,8 @@ Set via Steam Launch Options (`VAR=value %command%`) or inline (`VAR=value ./run
 | `CAR_SSID` | auto | Car WiFi name to join directly; optional override (Linux scans, macOS discovers saved cars otherwise) |
 | `NO_AUTOCONNECT` | off | `1` disables auto-join and reconnect |
 | `VIDEO_MODE` | `udp` | `udp` (low-latency) or `rtsp` (fallback) |
-| `FULLSCREEN` | Deck on / Mac off | `1` fullscreen, `0` windowed (Mac defaults windowed) |
-| `KB_FOCUS_MATCH` | `mpv` | frontmost-app name that enables keyboard driving (macOS) |
+| `FULLSCREEN` | Linux on / Mac+Windows off | `1` fullscreen, `0` windowed (Mac defaults windowed) |
+| `KB_FOCUS_MATCH` | `mpv` / bundled app | frontmost-app name that enables keyboard driving (macOS) |
 | `STEER_AXIS` | `0` | Steering axis |
 | `THROTTLE_MODE` | `trigger` | `trigger` (RT/LT + A/B) or `stick` |
 | `RT_AXIS` / `LT_AXIS` | `5` / `2` | Trigger axes (forward / reverse) |
@@ -196,8 +207,8 @@ Set via Steam Launch Options (`VAR=value %command%`) or inline (`VAR=value ./run
 | `HUD_FONT` | `monospace` | OSD font (fontconfig name) |
 | `WIFI_IFACE` | auto | Interface for WiFi power-save (Linux) |
 | `JS_DEVICE` | first `/dev/input/js*` | Controller device (Linux) |
-| `GAMEPAD_BIN` | auto | Controller helper path (macOS) |
-| `KEYBOARD_BIN` | auto | Keyboard helper path (macOS; reads raw keys so throttle+steer combine) |
+| `GAMEPAD_BIN` | auto | Controller helper path (macOS/Windows) |
+| `KEYBOARD_BIN` | auto | Keyboard helper override; Mac/Windows use native helpers |
 
 ## Troubleshooting
 
@@ -214,7 +225,7 @@ Set via Steam Launch Options (`VAR=value %command%`) or inline (`VAR=value ./run
   or use the keyboard.
 - **macOS: keyboard won't combine throttle + steer** (pressing turn drops forward) —
   grant the keyboard helper Input Monitoring (System Settings → Privacy & Security →
-  Input Monitoring, add your terminal, relaunch). If it's missing entirely, build it
+  Input Monitoring, add WLtoys Drive (or your terminal for source), relaunch). If it's missing entirely, build it
   with `bash gamepad/build-mac.sh`. This is an mpv limitation the helper works around.
 - **A control is wrong** — run `./run.sh --list` to read axis/button numbers and set
   the matching variables above.

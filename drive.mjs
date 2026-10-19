@@ -560,7 +560,7 @@ function buildPlayer(src) {
   const wantFullscreen = process.env.FULLSCREEN !== undefined
     ? /^(1|true|yes|on)$/i.test(process.env.FULLSCREEN)
     : process.platform === "linux";
-  const mpvCommon = ["--no-config", "--title=WLtoys Drive", "--profile=low-latency", "--hwdec=auto", "--no-audio", "--cache=no",
+  const mpvCommon = ["--terminal=yes", "--no-config", "--title=WLtoys Drive", "--profile=low-latency", "--hwdec=auto", "--no-audio", "--cache=no",
     "--demuxer-readahead-secs=0", "--framedrop=vo", "--untimed",
     ...(wantFullscreen ? ["--fullscreen"] : ["--autofit=1280x720"]),
     // A lossy UDP feed always yields SOME undecodable NALUs; ffmpeg logs a 2-line

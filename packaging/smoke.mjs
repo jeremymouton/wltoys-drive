@@ -1,16 +1,15 @@
 import fs from "node:fs";
 import path from "node:path";
 import dgram from "node:dgram";
-import { spawnSync } from "node:child_process";
-import { spawn } from "node:child_process";
+import { spawn, spawnSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import { once } from "node:events";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 export async function smoke({ app, node, mpv, env, home }) {
   const control = dgram.createSocket("udp4"), camera = dgram.createSocket("udp4");
-  const packets = []; let streaming = false, frameId = 0, address;
-  control.on("message", (p) => packets.push(Buffer.from(p)));
+  const packets = [], samples = [], marks = {}; let streaming = false, frameId = 0, address;
+  control.on("message", (p) => { packets.push(Buffer.from(p)); samples.push({ at: Date.now(), packet: Buffer.from(p) }); });
   camera.on("message", (p, r) => { streaming = p[2] === 0x20; address = r.address; });
   await Promise.all([new Promise((r) => control.bind(23458, "127.0.0.1", r)), new Promise((r) => camera.bind(23459, "127.0.0.1", r))]);
   const feed = fs.readFileSync(path.join(here, "camera.h265"));
@@ -38,7 +37,11 @@ end)
     stdio: ["ignore", "pipe", "pipe"],
   });
   let output = "";
-  child.stdout.on("data", (b) => output += b); child.stderr.on("data", (b) => output += b);
+  child.stdout.on("data", (b) => output += b);
+  child.stderr.on("data", (b) => {
+    output += b;
+    for (const match of String(b).matchAll(/fixture:(turn|release|forward|stale)/g)) marks[match[1]] = Date.now();
+  });
   const sender = setInterval(() => {
     if (!streaming || !address) return;
     const frame = frames[frameId % frames.length];
@@ -50,13 +53,24 @@ end)
     }
     frameId++;
   }, 40);
-  const timeout = setTimeout(() => child.kill(), 12000);
+  let timedOut = false;
+  const timeout = setTimeout(() => { timedOut = true; child.kill(); }, 12000);
   try {
     const [code] = await once(child, "exit");
+    if (timedOut) throw Error(`Video never completed: ${output}`);
     if (code !== 0) throw Error(`App/video smoke failed (${code}): ${output}`);
+    if (frameId < 20 || !/VO: \[null\]/.test(output)) throw Error(`Video was not decoded: ${output}`);
     if (/Lua error|Error loading|Failed to open|Error opening/i.test(output)) throw Error(output);
     if (packets.length < 30 || !packets.every((p) => p.length === 16 && p[14] === (p[9] ^ p[10] ^ p[11]))) throw Error("Invalid UDP control packets");
     if (!packets.some((p) => p[9] > 128 && p[10] === 255)) throw Error(`No simultaneous keyboard forward/steer: ${output}`);
+    for (const [name, wait, duration, check] of [
+      ["release", 80, 200, (p) => p[9] === 128 && p[10] === 128],
+      ["forward", 80, 200, (p) => p[10] === 255],
+      ["stale", 350, 500, (p) => p[9] === 128 && p[10] === 128],
+    ]) {
+      const phase = samples.filter((s) => s.at >= marks[name] + wait && s.at <= marks[name] + duration);
+      if (!phase.length || !phase.every((s) => check(s.packet))) throw Error(`Input ${name} failsafe check failed`);
+    }
     if (!packets.slice(-6).every((p) => p[9] === 128 && p[10] === 128)) throw Error("Shutdown failed to neutralize");
     console.log(`UDP/video smoke: ${packets.length} valid packets, ${frameId} HEVC frames; neutral shutdown`);
   } finally {
