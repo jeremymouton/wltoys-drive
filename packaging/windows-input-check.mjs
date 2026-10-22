@@ -21,7 +21,7 @@ export async function checkWindowsInput(app, home, env) {
   const player = spawn(fixture, [], { env });
   const playerClosed = once(player, "close");
   let message = ""; player.stdout.on("data", (b) => message += b);
-  const timeout = setTimeout(() => { player.kill(); helper.kill(); }, 10000);
+  const timeout = setTimeout(() => { player.kill(); helper.kill(); }, 15000);
   try {
     const [code] = await playerClosed;
     if (code !== 0) throw Error(`Native keyboard window check failed: ${message} ${errors}`);

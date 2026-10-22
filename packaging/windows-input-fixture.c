@@ -18,12 +18,39 @@ static void pump(unsigned milliseconds) {
     } while (GetTickCount64() < end);
 }
 
+static int activate(HWND window) {
+    ShowWindow(window, SW_SHOW);
+    for (int attempt = 0; attempt < 10; attempt++) {
+        HWND foreground = GetForegroundWindow();
+        DWORD current = GetCurrentThreadId();
+        DWORD other = foreground ? GetWindowThreadProcessId(foreground, NULL) : 0;
+        BOOL attached = other && other != current && AttachThreadInput(current, other, TRUE);
+        if (attempt) { key(VK_MENU, 0); key(VK_MENU, KEYEVENTF_KEYUP); }
+        BringWindowToTop(window); SetForegroundWindow(window); SetFocus(window);
+        if (attached) AttachThreadInput(current, other, FALSE);
+        pump(200);
+        if (GetForegroundWindow() == window) return 1;
+    }
+    DWORD session = 0, needed = 0;
+    wchar_t name[80] = L"unavailable";
+    ProcessIdToSessionId(GetCurrentProcessId(), &session);
+    HDESK desktop = OpenInputDesktop(0, FALSE, DESKTOP_READOBJECTS);
+    DWORD error = GetLastError();
+    if (desktop) { GetUserObjectInformationW(desktop, UOI_NAME, name, sizeof(name), &needed); CloseDesktop(desktop); }
+    printf("FOCUS_DIAGNOSTIC session=%lu foreground=%p target=%p input_desktop=%ls error=%lu\n",
+        session, (void *)GetForegroundWindow(), (void *)window, name, error);
+    return 0;
+}
+
 int main(void) {
     HWND window = CreateWindowExW(0, L"STATIC", L"WLtoys keyboard verification", WS_OVERLAPPEDWINDOW,
         0, 0, 480, 240, NULL, NULL, GetModuleHandleW(NULL), NULL);
     if (!window) return 1;
-    ShowWindow(window, SW_SHOW); SetForegroundWindow(window); pump(500);
-    if (GetForegroundWindow() != window) { DestroyWindow(window); puts("NO_INTERACTIVE_DESKTOP"); return 2; }
+    if (!activate(window)) { DestroyWindow(window); puts("NO_INTERACTIVE_DESKTOP"); return 2; }
+    for (int attempt = 0; attempt < 20; attempt++) {
+        if (SendMessageW(window, WM_GETICON, ICON_BIG, 0) && SendMessageW(window, WM_GETICON, ICON_SMALL, 0)) break;
+        pump(100);
+    }
     if (!SendMessageW(window, WM_GETICON, ICON_BIG, 0) || !SendMessageW(window, WM_GETICON, ICON_SMALL, 0)) {
         DestroyWindow(window); puts("MISSING_WINDOW_ICONS"); return 3;
     }
