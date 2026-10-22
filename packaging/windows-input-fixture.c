@@ -20,16 +20,17 @@ static void pump(unsigned milliseconds) {
 
 static int activate(HWND window) {
     ShowWindow(window, SW_SHOW);
+    SetWindowPos(window, HWND_TOPMOST, 200, 200, 480, 240, SWP_SHOWWINDOW);
     for (int attempt = 0; attempt < 10; attempt++) {
         HWND foreground = GetForegroundWindow();
         DWORD current = GetCurrentThreadId();
         DWORD other = foreground ? GetWindowThreadProcessId(foreground, NULL) : 0;
         BOOL attached = other && other != current && AttachThreadInput(current, other, TRUE);
-        if (attempt) { key(VK_MENU, 0); key(VK_MENU, KEYEVENTF_KEYUP); }
         BringWindowToTop(window); SetForegroundWindow(window); SetFocus(window);
         if (attached) AttachThreadInput(current, other, FALSE);
         pump(200);
         if (GetForegroundWindow() == window) {
+            SendMessageW(window, WM_CANCELMODE, 0, 0);
             key(VK_ESCAPE, 0); key(VK_ESCAPE, KEYEVENTF_KEYUP); pump(100);
             return GetForegroundWindow() == window;
         }
@@ -76,8 +77,9 @@ int main(void) {
     HWND under = WindowFromPoint(actual);
     if (GetAncestor(under, GA_ROOT) != window) {
         RECT rect; GetWindowRect(window, &rect);
-        printf("CURSOR_OUTSIDE_WINDOW requested=%ld,%ld actual=%ld,%ld bounds=%ld,%ld,%ld,%ld under=%p target=%p\n",
-            point.x, point.y, actual.x, actual.y, rect.left, rect.top, rect.right, rect.bottom, (void *)under, (void *)window);
+        wchar_t other[128] = {0}; GetClassNameW(under, other, 128);
+        printf("CURSOR_OUTSIDE_WINDOW requested=%ld,%ld actual=%ld,%ld bounds=%ld,%ld,%ld,%ld under=%p class=%ls target=%p\n",
+            point.x, point.y, actual.x, actual.y, rect.left, rect.top, rect.right, rect.bottom, (void *)under, other, (void *)window);
         DestroyWindow(window); return 6;
     }
     INPUT click = {0}; click.type = INPUT_MOUSE; click.mi.dwFlags = MOUSEEVENTF_LEFTDOWN;
