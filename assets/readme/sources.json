@@ -12,7 +12,7 @@
       "file": "source/steam-deck-oled.png",
       "title": "Valve Steam Deck OLED product photo",
       "url": "https://cdn.fastly.steamstatic.com/steamdeck/images/press/renderings/press_oled_front_english.png",
-      "method": "Official OLED press image, cropped from 2500\u00d7980 at (267,166) to 1964\u00d7761 without stretching. Transparent shadow edges feathered at crop boundary. The active display occupies (491,69,984,615); the 16:9 FPV image is centered within this 16:10 display.",
+      "method": "Official OLED press image, cropped from 2500×980 at (267,166) to 1964×761 without stretching. Transparent shadow edges feathered at crop boundary. The active display occupies (491,69,984,615); the 16:9 FPV image is centered within this 16:10 display.",
       "specification_url": "https://www.steamdeck.com/en/tech/oled",
       "display": {
         "resolution": [
@@ -23,15 +23,15 @@
       }
     },
     {
-      "file": "source/fpv-scene.jpg",
-      "title": "Illustrative FPV scene",
-      "method": "Built-in image_gen, guided by the previously approved room view.",
-      "prompt": "Use case: precise-object-edit.\nInput image is a previous README composition. Use ONLY the room visible inside its left-hand app window as the visual reference.\nDeliver a standalone clean 16:9 FPV camera scene of that same room: camera at a tiny RC car's height, just above the wooden floor, looking between the wooden chair legs toward the sofa, potted plants, curtains and soft window light. Preserve the warm wood, ordinary realistic room, toy-camera low perspective, and recognizable placement of chair legs from the reference.\nOutput ONLY the camera view, full bleed, at 1600x900 or a comparable 16:9 resolution. Remove all HUD elements: no crosshair, no throttle bar, no steering tape, no recording text, no numbers, no titlebar, no text at all. No device hardware, no visible car, no page background, no typography, no borders, no watermark. Natural photographic texture, restrained color, mildly imperfect consumer FPV camera image, no cinematic lighting or glossy advertising finish."
+      "file": "source/fpv-scene.png",
+      "title": "Naturalistic illustrative FPV scene",
+      "method": "Built-in image_gen in generation mode. A new everyday apartment scene at toy-camera height with neutral daylight and restrained small-sensor detail. Generated illustration, not live car footage.",
+      "prompt": "Use case: photorealistic-natural.\nAsset type: a replacement 16:9 illustrative FPV video frame for a tiny indoor RC car app README. Generate ONLY the room camera image; the actual application HUD will be composited separately.\nPrimary request: an unremarkable, believable frame from a cheap wide-angle toy camera mounted 3 centimeters above the floor in an ordinary lived-in apartment. It should resemble paused consumer camera footage, not an interior-design photograph or an AI architectural render.\nScene: simple matte light oak laminate flooring, an off-white wall with a normal skirting board, the side of a plain dining chair at the left edge, an ordinary gray fabric sofa farther away, and an open doorway. Spatially coherent furniture, straight physical walls, normal chair-leg geometry, modest untidy everyday wear, subtle floor scuffs and natural material variation. Keep the middle of the floor passable and uncluttered.\nComposition: landscape 16:9, camera truly at toy-car height, looking almost horizontally across the floor, normal wide-angle perspective with slight lens barrel distortion. Deep focus from the middle distance onward; no shallow-focus portrait bokeh, no giant blurred foreground. Floor in the lower half, furniture and wall in the upper half.\nLighting/style: soft flat overcast daylight, neutral white balance, subdued natural colors, slightly limited dynamic range, modest small-sensor grain and faint compression softness. A candid practical camera view with imperfect everyday detail, not gritty or degraded. No golden light, glossy wood reflections, bloom, perfect symmetrical styling, dramatic sunbeams, cinematic color grading, oversharpening, illustration, CGI, or 3D rendering.\nConstraints: full bleed standalone camera frame, no HUD, no crosshair, no text, no timestamp, no numbers, no borders, no device, no visible vehicle, no logo, no watermark."
     },
     {
       "file": "source/hud-preview.jpg",
       "title": "Driver HUD over illustrative scene",
-      "method": "Captured from mpv using the HUD renderer in drive.mjs. An isolated scratch copy substituted the still image for the demo test pattern and set demo state to 35% throttle, -10% steering, trim 0, recording, and 25 FPS. App source is unchanged. This is not live car footage."
+      "method": "Rendered by mpv/libass using ASS output from the unchanged HUD drawing functions in drive.mjs over the new generated scene. Static demonstration state: 35% throttle, -10% steering, trim 0, REC 00:27, UDP 25 FPS. Courier New keeps the earlier screenshot typography. The scene is scaled/cropped proportionally to 1280x720; the same HUD frame feeds the app window, Steam Deck display and later HUD image. No driver session or car connection was started. This is not live car footage."
     }
   ],
   "outputs": [
