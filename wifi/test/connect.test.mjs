@@ -10,6 +10,9 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
+import fs from "node:fs";
+import path from "node:path";
+import { SESSION_DIR } from "../../runtime.mjs";
 import { linux, mac, wifiIface, __setRunner, __resetRunner, MAC_CURRENT_CAR } from "../connect.mjs";
 
 // ---- fake runner ------------------------------------------------------------
@@ -211,6 +214,40 @@ test("mac joinCar: rejects a non-car SSID before spawning", async () => {
   const r = await mac.joinCar("Cafe Guest WiFi", "172.16.11.1");
   assert.equal(r.ok, false);
   assert.equal(fake.calls.length, 0);
+});
+
+test("mac native join: requests association in the app and verifies DHCP without the CLI join", async () => {
+  const fake = macFake(); __setRunner(fake);
+  fs.writeFileSync(path.join(SESSION_DIR, "wifi-ready"), "ready");
+  let operation;
+  const responder = setInterval(() => {
+    try { operation = JSON.parse(fs.readFileSync(path.join(SESSION_DIR, "wifi-request.json"))); } catch { return; }
+    fs.writeFileSync(path.join(SESSION_DIR, "wifi-result.json"), JSON.stringify({ id: operation.id, current: operation.ssid }));
+  }, 10);
+  try {
+    assert.deepEqual(await mac.joinCar("WL FPV CAR 75899112"), { ok: true });
+    assert.equal(operation.action, "join"); assert.equal(operation.ssid, "WL FPV CAR 75899112");
+    assert.equal("password" in operation, false);
+    assert.ok(!fake.calls.some(({args}) => args[0] === "-setairportnetwork"));
+  } finally {
+    clearInterval(responder);
+    for (const file of ["wifi-ready", "wifi-request.json", "wifi-result.json"]) fs.rmSync(path.join(SESSION_DIR, file), { force: true });
+  }
+});
+
+test("mac native join: association failure remains an explicit error", async () => {
+  __setRunner(macFake());
+  fs.writeFileSync(path.join(SESSION_DIR, "wifi-ready"), "ready");
+  const responder = setInterval(() => {
+    let request;
+    try { request = JSON.parse(fs.readFileSync(path.join(SESSION_DIR, "wifi-request.json"))); } catch { return; }
+    fs.writeFileSync(path.join(SESSION_DIR, "wifi-result.json"), JSON.stringify({ id: request.id, error: "Authentication failed", code: "join" }));
+  }, 10);
+  try { assert.deepEqual(await mac.joinCar("WL FPV CAR 75899112"), { ok: false, reason: "Authentication failed" }); }
+  finally {
+    clearInterval(responder);
+    for (const file of ["wifi-ready", "wifi-request.json", "wifi-result.json"]) fs.rmSync(path.join(SESSION_DIR, file), { force: true });
+  }
 });
 
 

@@ -144,23 +144,28 @@ async function macOnCarAP(carIp = CAR_IP_DEFAULT) {
 }
 
 let scanSequence = 0;
-async function macScanCars() {
+async function macWifiRequest(operation = {}, timeout = 15000) {
   if (!fs.existsSync(path.join(SESSION_DIR, "wifi-ready"))) throw Error("Open the app window to find nearby cars.");
   const id = `${process.pid}-${Date.now()}-${++scanSequence}`;
   const request = path.join(SESSION_DIR, "wifi-request.json");
-  fs.writeFileSync(request + ".tmp", JSON.stringify({ id }));
+  fs.writeFileSync(request + ".tmp", JSON.stringify({ id, ...operation }));
   fs.renameSync(request + ".tmp", request);
-  const deadline = Date.now() + 15000;
+  const deadline = Date.now() + timeout;
   while (Date.now() < deadline) {
     let result;
     try { result = JSON.parse(fs.readFileSync(path.join(SESSION_DIR, "wifi-result.json"), "utf8")); } catch {}
     if (result?.id === id) {
       if (result.error) { const error = Error(result.error); error.code = result.code || "scan"; throw error; }
-      return parseSsidList((result.cars || []).join("\n"));
+      return result;
     }
     await sleep(100);
   }
-  throw Error("Wi-Fi discovery timed out. Retrying automatically.");
+  throw Error(operation.action === "join" ? "Wi-Fi connection timed out. Retrying automatically." : "Wi-Fi discovery timed out. Retrying automatically.");
+}
+
+async function macScanCars() {
+  const result = await macWifiRequest();
+  return parseSsidList((result.cars || []).join("\n"));
 }
 
 async function macCurrentCar() {
@@ -177,6 +182,15 @@ async function macJoinCar(ssid, carIp = CAR_IP_DEFAULT, opts = {}) {
   // the "WL FPV CAR" gate rules out a leading "-" being read as a networksetup flag.
   const s = String(ssid ?? "").trim();
   if (!matchCarSsid(s)) return { ok: false, reason: "notcar" };
+  if (fs.existsSync(path.join(SESSION_DIR, "wifi-ready"))) {
+    try { await macWifiRequest({ action: "join", ssid: s }, 45000); }
+    catch (error) { return { ok: false, reason: error.message }; }
+    for (let i = 0; i < 20; i++) {
+      if (await macOnCarAP(carIp)) return { ok: true };
+      await sleep(500);
+    }
+    return { ok: false, reason: "Connected to Wi-Fi, waiting for the car's network address. Retrying." };
+  }
   const pw = derivePw(s); // never logged
   const iface = await wifiIface();
   await run("networksetup", ["-setairportpower", iface, "on"]); // ensure radio up

@@ -1504,7 +1504,6 @@ async function main() {
   if (screen) {
     await screen.play({ mode: VIDEO_MODE, rtsp: RTSP, transport: RTSP_TRANSPORT,
       fps: Number(process.env.VIDEO_FPS ?? 25), lowLatency: process.env.VIDEO_LOWLAT !== "0" });
-    fs.writeFileSync(path.join(SESSION_DIR, "wifi-stop"), "");
     screen.dispose(); startupScreen = null; picking = false; awaitingNeutral = true;
   }
   const video = startVideo(screen?.player);

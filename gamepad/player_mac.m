@@ -22,7 +22,7 @@ static CLLocationManager *locationManager;
 static BOOL scanning;
 
 static BOOL carName(NSString *ssid) {
-    return ssid.length >= 19 && ssid.length <= 32 && [ssid rangeOfString:@"^WL FPV CAR [0-9]{8,21}$" options:NSRegularExpressionSearch].location != NSNotFound;
+    return [ssid isKindOfClass:NSString.class] && ssid.length >= 19 && ssid.length <= 32 && [ssid rangeOfString:@"^WL FPV CAR [0-9]{8,21}$" options:NSRegularExpressionSearch].location != NSNotFound;
 }
 
 static void wifiResult(NSString *request, NSArray *cars, NSString *current, NSString *error, NSString *code) {
@@ -32,21 +32,26 @@ static void wifiResult(NSString *request, NSArray *cars, NSString *current, NSSt
     [data writeToFile:[wifiDirectory stringByAppendingPathComponent:@"wifi-result.json"] atomically:YES];
 }
 
-static void scanWifi(NSString *request) {
+static BOOL wifiAllowed(NSString *request) {
     if (![CLLocationManager locationServicesEnabled]) {
         wifiResult(request, nil, nil, @"Turn on Location Services to scan nearby Wi-Fi networks and find your car.", @"permission");
-        return;
+        return NO;
     }
     CLAuthorizationStatus authorization = locationManager.authorizationStatus;
     if (authorization == kCLAuthorizationStatusNotDetermined) {
         [locationManager requestWhenInUseAuthorization];
         wifiResult(request, nil, nil, @"Location access is needed to scan nearby Wi-Fi networks and find your car.", @"permission");
-        return;
+        return NO;
     }
     if (authorization != kCLAuthorizationStatusAuthorizedAlways) {
         wifiResult(request, nil, nil, @"Allow WLtoys Drive in Location Services to scan Wi-Fi networks and find your car.", @"permission");
-        return;
+        return NO;
     }
+    return YES;
+}
+
+static void scanWifi(NSString *request) {
+    if (!wifiAllowed(request)) return;
     scanning = YES;
     dispatch_async(dispatch_get_global_queue(QOS_CLASS_UTILITY, 0), ^{
         NSMutableDictionary<NSString *, NSNumber *> *cars = [NSMutableDictionary new];
@@ -78,6 +83,32 @@ static void scanWifi(NSString *request) {
             return [cars[b] compare:cars[a]];
         }];
         wifiResult(request, names, current, failure, code);
+        dispatch_async(dispatch_get_main_queue(), ^{ scanning = NO; });
+    });
+}
+
+static void joinWifi(NSString *request, NSString *ssid) {
+    if (!carName(ssid)) { wifiResult(request, nil, nil, @"Invalid car network name.", @"join"); return; }
+    if (!wifiAllowed(request)) return;
+    scanning = YES;
+    dispatch_async(dispatch_get_global_queue(QOS_CLASS_UTILITY, 0), ^{
+        NSString *failure = @"Car is no longer in range. Searching again.";
+        BOOL joined = NO;
+        for (CWInterface *interface in [CWWiFiClient sharedWiFiClient].interfaces) {
+            if (!interface.powerOn) continue;
+            if ([interface.ssid isEqualToString:ssid]) { joined = YES; break; }
+            NSError *error = nil;
+            NSSet<CWNetwork *> *networks = [interface scanForNetworksWithSSID:[ssid dataUsingEncoding:NSUTF8StringEncoding] error:&error];
+            CWNetwork *best = nil;
+            for (CWNetwork *network in networks) {
+                if ([network.ssid isEqualToString:ssid] && (!best || network.rssiValue > best.rssiValue)) best = network;
+            }
+            if (best && [interface associateToNetwork:best password:[ssid substringFromIndex:ssid.length - 8] error:&error]) {
+                joined = YES; break;
+            }
+            if (error) failure = error.localizedDescription;
+        }
+        wifiResult(request, nil, joined ? ssid : nil, joined ? nil : failure, joined ? nil : @"join");
         dispatch_async(dispatch_get_main_queue(), ^{ scanning = NO; });
     });
 }
@@ -307,14 +338,15 @@ int main(int argc, char **argv) {
             locationManager = [CLLocationManager new]; locationManager.delegate = delegate;
             [@"ready" writeToFile:[wifiDirectory stringByAppendingPathComponent:@"wifi-ready"] atomically:YES encoding:NSUTF8StringEncoding error:nil];
             NSTimer *discovery = [NSTimer timerWithTimeInterval:0.2 repeats:YES block:^(NSTimer *timer) {
-                if ([[NSFileManager defaultManager] fileExistsAtPath:[wifiDirectory stringByAppendingPathComponent:@"wifi-stop"]]) { [timer invalidate]; return; }
+                (void)timer;
                 if (scanning) return;
                 NSData *data = [NSData dataWithContentsOfFile:[wifiDirectory stringByAppendingPathComponent:@"wifi-request.json"]];
                 NSDictionary *request = data ? [NSJSONSerialization JSONObjectWithData:data options:0 error:nil] : nil;
                 NSString *identifier = request[@"id"];
                 if (![identifier isKindOfClass:NSString.class] || [wifiRequest isEqualToString:identifier]) return;
                 wifiRequest = identifier;
-                scanWifi(identifier);
+                if ([request[@"action"] isEqual:@"join"]) joinWifi(identifier, request[@"ssid"]);
+                else scanWifi(identifier);
             }];
             [[NSRunLoop mainRunLoop] addTimer:discovery forMode:NSRunLoopCommonModes];
         }
