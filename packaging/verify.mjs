@@ -21,7 +21,8 @@ try {
   run(process.platform === "darwin" ? "ditto" : process.platform === "win32" ? path.join(process.env.SystemRoot, "System32/tar.exe") : "tar", process.platform === "darwin" ? ["-x", "-k", archive, temp] : ["-xf", archive, "-C", temp]);
   console.log("Extracted package");
   const top = path.join(temp, fs.readdirSync(temp).find((s) => s !== "__MACOSX"));
-  const app = process.platform === "darwin" ? path.join(top, "Contents/Resources") : top;
+  const resources = path.join(top, "Contents/Resources");
+  const app = fs.existsSync(path.join(resources, "build.json")) ? resources : top;
   const manifest = JSON.parse(fs.readFileSync(path.join(app, "build.json")));
   const target = `${{ darwin: "macos", linux: "linux", win32: "windows" }[process.platform]}-${process.arch}`;
   if (manifest.target !== target) throw Error(`Archive target ${manifest.target} does not match native runner ${target}`);
