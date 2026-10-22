@@ -86,9 +86,9 @@ test("linux scanCars: invokes nmcli with the exact scan argv", async () => {
   assert.deepEqual(fake.calls[0].args, ["-g", "SSID", "device", "wifi", "list", "--rescan", "yes"]);
 });
 
-test("linux scanCars: non-zero nmcli exit -> [] (non-fatal)", async () => {
+test("linux scanCars: scan failure is distinct from no nearby cars", async () => {
   __setRunner(makeFake(() => ({ code: 8, stdout: "" })));
-  assert.deepEqual(await linux.scanCars(), []);
+  await assert.rejects(linux.scanCars(), /Wi-Fi discovery failed/);
 });
 
 test("linux onCarAP: active car SSID (with spaces) -> true", async () => {
@@ -213,10 +213,6 @@ test("mac joinCar: rejects a non-car SSID before spawning", async () => {
   assert.equal(fake.calls.length, 0);
 });
 
-test("mac: SCAN_SUPPORTED is false and scanCars() resolves []", async () => {
-  assert.equal(mac.SCAN_SUPPORTED, false);
-  assert.deepEqual(await mac.scanCars(), []);
-});
 
 // ========================= security: pw never logged ========================
 

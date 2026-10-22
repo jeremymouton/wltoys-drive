@@ -1,6 +1,8 @@
 #define GL_SILENCE_DEPRECATION
 #import <Cocoa/Cocoa.h>
 #import <OpenGL/gl3.h>
+#import <CoreWLAN/CoreWLAN.h>
+#import <CoreLocation/CoreLocation.h>
 #import <mpv/client.h>
 #import <mpv/render_gl.h>
 #include <mach-o/dyld.h>
@@ -14,6 +16,71 @@ static NSOpenGLView *videoView;
 static NSMutableSet<NSString *> *held;
 static BOOL stopping;
 static atomic_bool framePending = true;
+static NSString *wifiDirectory;
+static NSString *wifiRequest;
+static CLLocationManager *locationManager;
+static BOOL scanning;
+
+static BOOL carName(NSString *ssid) {
+    return ssid.length >= 19 && ssid.length <= 32 && [ssid rangeOfString:@"^WL FPV CAR [0-9]{8,21}$" options:NSRegularExpressionSearch].location != NSNotFound;
+}
+
+static void wifiResult(NSString *request, NSArray *cars, NSString *current, NSString *error, NSString *code) {
+    NSDictionary *result = @{@"id": request, @"cars": cars ?: @[], @"current": current ?: @"",
+        @"error": error ?: @"", @"code": code ?: @""};
+    NSData *data = [NSJSONSerialization dataWithJSONObject:result options:0 error:nil];
+    [data writeToFile:[wifiDirectory stringByAppendingPathComponent:@"wifi-result.json"] atomically:YES];
+}
+
+static void scanWifi(NSString *request) {
+    if (![CLLocationManager locationServicesEnabled]) {
+        wifiResult(request, nil, nil, @"Turn on Location Services to scan nearby Wi-Fi networks and find your car.", @"permission");
+        return;
+    }
+    CLAuthorizationStatus authorization = locationManager.authorizationStatus;
+    if (authorization == kCLAuthorizationStatusNotDetermined) {
+        [locationManager requestWhenInUseAuthorization];
+        wifiResult(request, nil, nil, @"Location access is needed to scan nearby Wi-Fi networks and find your car.", @"permission");
+        return;
+    }
+    if (authorization != kCLAuthorizationStatusAuthorizedAlways) {
+        wifiResult(request, nil, nil, @"Allow WLtoys Drive in Location Services to scan Wi-Fi networks and find your car.", @"permission");
+        return;
+    }
+    scanning = YES;
+    dispatch_async(dispatch_get_global_queue(QOS_CLASS_UTILITY, 0), ^{
+        NSMutableDictionary<NSString *, NSNumber *> *cars = [NSMutableDictionary new];
+        NSString *current = nil, *failure = nil, *code = nil;
+        BOOL powered = NO, visible = NO, scanned = NO;
+        for (CWInterface *interface in [CWWiFiClient sharedWiFiClient].interfaces) {
+            if (!interface.powerOn) continue;
+            powered = YES;
+            NSString *associated = interface.ssid;
+            if (carName(associated)) current = associated;
+            NSError *error = nil;
+            NSSet<CWNetwork *> *networks = [interface scanForNetworksWithSSID:nil error:&error];
+            if (!networks) { failure = error.localizedDescription; continue; }
+            scanned = YES;
+            for (CWNetwork *network in networks) {
+                NSString *ssid = network.ssid;
+                if (ssid.length) visible = YES;
+                if (carName(ssid) && (!cars[ssid] || network.rssiValue > cars[ssid].integerValue)) cars[ssid] = @(network.rssiValue);
+            }
+            if (networks.count && !visible) {
+                failure = @"Wi-Fi network names are hidden. Allow WLtoys Drive in Location Services.";
+                code = @"permission";
+            }
+        }
+        if (!powered) failure = @"Turn on Wi-Fi to find nearby cars.";
+        else if (!scanned && !failure) failure = @"Wi-Fi discovery could not start. Retrying automatically.";
+        if (cars.count) { failure = nil; code = nil; }
+        NSArray *names = [cars.allKeys sortedArrayUsingComparator:^NSComparisonResult(NSString *a, NSString *b) {
+            return [cars[b] compare:cars[a]];
+        }];
+        wifiResult(request, names, current, failure, code);
+        dispatch_async(dispatch_get_main_queue(), ^{ scanning = NO; });
+    });
+}
 
 static void line(NSString *value) {
     fprintf(stdout, "%s\n", value.UTF8String); fflush(stdout);
@@ -93,13 +160,14 @@ static void heartbeat(void) {
 }
 @end
 
-@interface DriveDelegate : NSObject <NSWindowDelegate, NSApplicationDelegate>
+@interface DriveDelegate : NSObject <NSWindowDelegate, NSApplicationDelegate, CLLocationManagerDelegate>
 @end
 @implementation DriveDelegate
 - (void)windowDidResignKey:(NSNotification *)note { (void)note; clearKeys(); }
 - (void)applicationDidResignActive:(NSNotification *)note { (void)note; clearKeys(); }
 - (void)windowWillClose:(NSNotification *)note { (void)note; finish(0); }
 - (NSApplicationTerminateReply)applicationShouldTerminate:(NSApplication *)sender { (void)sender; finish(0); return NSTerminateNow; }
+- (void)locationManagerDidChangeAuthorization:(CLLocationManager *)manager { (void)manager; wifiRequest = nil; }
 @end
 
 static void *glAddress(void *ctx, const char *name) { (void)ctx; return dlsym(RTLD_DEFAULT, name); }
@@ -182,6 +250,7 @@ int main(int argc, char **argv) {
         const char *source = NULL; BOOL fullscreen = NO;
         for (int i = 1; i < argc; i++) {
             NSString *arg = @(argv[i]);
+            if ([arg hasPrefix:@"--wltoys-wifi-dir="]) { wifiDirectory = [arg substringFromIndex:18]; continue; }
             if (![arg hasPrefix:@"--"]) { source = argv[i]; continue; }
             NSString *option = [arg substringFromIndex:2], *value = @"yes";
             NSRange equal = [option rangeOfString:@"="];
@@ -233,6 +302,21 @@ int main(int argc, char **argv) {
         item.submenu = [NSMenu new]; [item.submenu addItemWithTitle:@"Quit WLtoys Drive" action:@selector(terminate:) keyEquivalent:@"q"];
         NSApp.mainMenu = menu;
         [NSApp activateIgnoringOtherApps:YES];
+        if (wifiDirectory) {
+            locationManager = [CLLocationManager new]; locationManager.delegate = delegate;
+            [@"ready" writeToFile:[wifiDirectory stringByAppendingPathComponent:@"wifi-ready"] atomically:YES encoding:NSUTF8StringEncoding error:nil];
+            NSTimer *discovery = [NSTimer timerWithTimeInterval:0.2 repeats:YES block:^(NSTimer *timer) {
+                if ([[NSFileManager defaultManager] fileExistsAtPath:[wifiDirectory stringByAppendingPathComponent:@"wifi-stop"]]) { [timer invalidate]; return; }
+                if (scanning) return;
+                NSData *data = [NSData dataWithContentsOfFile:[wifiDirectory stringByAppendingPathComponent:@"wifi-request.json"]];
+                NSDictionary *request = data ? [NSJSONSerialization JSONObjectWithData:data options:0 error:nil] : nil;
+                NSString *identifier = request[@"id"];
+                if (![identifier isKindOfClass:NSString.class] || [wifiRequest isEqualToString:identifier]) return;
+                wifiRequest = identifier;
+                scanWifi(identifier);
+            }];
+            [[NSRunLoop mainRunLoop] addTimer:discovery forMode:NSRunLoopCommonModes];
+        }
         if (fullscreen) [window toggleFullScreen:nil];
         NSTimer *timer = [NSTimer timerWithTimeInterval:0.05 repeats:YES block:^(NSTimer *t) {
             (void)t;

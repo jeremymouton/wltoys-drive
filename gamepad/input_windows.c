@@ -116,6 +116,29 @@ static int gateway(const wchar_t *ip) {
     return found ? 0 : 1;
 }
 
+typedef struct { HANDLE ready; GUID interfaceId; DWORD error; } Scan;
+
+static void WINAPI scan_notification(WLAN_NOTIFICATION_DATA *notification, void *context) {
+    Scan *scan = context;
+    if (notification->NotificationSource != WLAN_NOTIFICATION_SOURCE_ACM || memcmp(&notification->InterfaceGuid, &scan->interfaceId, sizeof(GUID))) return;
+    if (notification->NotificationCode == wlan_notification_acm_scan_complete) { scan->error = 0; SetEvent(scan->ready); }
+    else if (notification->NotificationCode == wlan_notification_acm_scan_fail) { scan->error = ERROR_GEN_FAILURE; SetEvent(scan->ready); }
+}
+
+static DWORD scan_networks(HANDLE client, GUID *id, WLAN_AVAILABLE_NETWORK_LIST **networks) {
+    Scan scan = {0}; scan.interfaceId = *id;
+    scan.ready = CreateEventW(NULL, FALSE, FALSE, NULL);
+    if (!scan.ready) return GetLastError();
+    DWORD error = WlanRegisterNotification(client, WLAN_NOTIFICATION_SOURCE_ACM, TRUE, scan_notification, &scan, NULL, NULL);
+    if (!error) {
+        error = WlanScan(client, id, NULL, NULL, NULL);
+        if (!error) error = WaitForSingleObject(scan.ready, 5000) == WAIT_OBJECT_0 ? scan.error : ERROR_TIMEOUT;
+        WlanRegisterNotification(client, WLAN_NOTIFICATION_SOURCE_NONE, TRUE, NULL, NULL, NULL, NULL);
+    }
+    CloseHandle(scan.ready);
+    return error ? error : WlanGetAvailableNetworkList(client, id, 0, NULL, networks);
+}
+
 static int wifi(int argc, wchar_t **argv) {
     HANDLE client; DWORD version, error;
     error = WlanOpenHandle(2, NULL, &version, &client);
@@ -142,7 +165,7 @@ static int wifi(int argc, wchar_t **argv) {
             }
         } else if (!wcscmp(argv[1], L"--wifi-scan")) {
             WLAN_AVAILABLE_NETWORK_LIST *networks = NULL;
-            error = WlanGetAvailableNetworkList(client, id, 0, NULL, &networks);
+            error = scan_networks(client, id, &networks);
             if (!error) {
                 for (DWORD j = 0; j < networks->dwNumberOfItems; j++) print_ssid(networks->Network[j].dot11Ssid);
                 WlanFreeMemory(networks); result = 0;

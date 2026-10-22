@@ -27,5 +27,5 @@ echo "built $DIR/gamepad_mac"
 MPV_PREFIX="$(brew --prefix mpv)"
 clang -fobjc-arc -fblocks -O2 -mmacosx-version-min=14.0 "$DIR/player_mac.m" \
   -I"$MPV_PREFIX/include" -L"$MPV_PREFIX/lib" -lmpv \
-  -framework Cocoa -framework OpenGL -o "$DIR/player_mac"
+  -framework Cocoa -framework OpenGL -framework CoreWLAN -framework CoreLocation -o "$DIR/player_mac"
 echo "built $DIR/player_mac"

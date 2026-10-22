@@ -11,4 +11,6 @@
 <key>LSUIElement</key><true/>
 <key>NSHighResolutionCapable</key><true/>
 <key>NSLocalNetworkUsageDescription</key><string>Connect to your WLtoys car for driving and camera video.</string>
+<key>NSLocationUsageDescription</key><string>macOS requires Location access to scan Wi-Fi networks and find your WLtoys car.</string>
+<key>NSLocationWhenInUseUsageDescription</key><string>macOS requires Location access to scan Wi-Fi networks and find your WLtoys car.</string>
 </dict></plist>

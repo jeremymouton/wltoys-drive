@@ -8,7 +8,7 @@
 //          car — no browser, so none of the Steam Input gamepad friction. Keyboard
 //          steering (WASD / arrows) works too, with or without a controller.
 //
-// Run with the machine joined to the car's WiFi (physical remote OFF):
+// Launch to discover nearby cars and connect (physical remote OFF):
 //   node drive.mjs            # drive (video + control)
 //   node drive.mjs --list     # print live axis/button numbers to map the sticks
 //   node drive.mjs --hud-demo # preview the OSD over a test pattern (no car needed)
@@ -20,7 +20,6 @@
 import dgram from "node:dgram";
 import fs from "node:fs";
 import os from "node:os";
-import readline from "node:readline";
 import { existsSync } from "node:fs";
 import { spawn, spawnSync } from "node:child_process";
 import path from "node:path";
@@ -29,7 +28,7 @@ import { APP_DIR, SESSION_DIR, PLAYER_IPC, LOCAL_PLAYER, findTool, luaString } f
 // ./wifi/ (zero npm deps). drive.mjs stays the sole car-facing script; wifi/ is
 // spawn-only glue over nmcli (Linux/Deck) / networksetup+gateway (macOS).
 import * as wifi from "./wifi/connect.mjs";
-import { StartupScreen } from "./startup.mjs";
+import { StartupScreen, connectToCar } from "./startup.mjs";
 import { matchCarSsid } from "./wifi/core.mjs";
 
 const CAR_IP = process.env.CAR_IP || "172.16.11.1";
@@ -71,8 +70,7 @@ const SEND_HZ = 50;
 const MIN_SEND_GAP_MS = Number(process.env.MIN_SEND_GAP_MS ?? 20);
 
 // ---- WiFi auto-connect (W1) + reconnect-on-drop (W4) -----------------------
-// CAR_SSID drives macOS discovery (CLI scanning is dead there — see research) and
-// is an explicit override on any platform. NO_AUTOCONNECT skips BOTH the pre-flight
+// CAR_SSID is an explicit override on any platform. NO_AUTOCONNECT skips the startup
 // join and the drop monitor (use whatever network is already joined; CAR_IP still
 // honored). Treat any set value except 0/false/no/off as "on".
 const CAR_SSID = process.env.CAR_SSID || "";
@@ -566,6 +564,7 @@ function buildPlayer(src) {
   if (mpv || flatpakMpv) {
     const pre = mpv ? [mpv] : ["flatpak", "run", "io.mpv.Mpv"];
     const hudArgs = writeHudLua() ? [`--script=${HUD_LUA}`] : [];
+    if (mpv === LOCAL_PLAYER) hudArgs.push(`--wltoys-wifi-dir=${SESSION_DIR}`);
     if (hudArgs.length && !kbHelperActive) startKeyboard(); // FIFO + reader BEFORE mpv's Lua opens the write end (skip when the native helper feeds keys)
     // Raw-HEVC latency trims. We hand mpv a byte stream, so ffmpeg has to re-derive
     // the frame boundaries and timestamps we already knew and discarded — an annex-B
@@ -994,73 +993,6 @@ function txOnChange() {
   tx(pkt);
 }
 
-// ---- WiFi auto-connect (W1) + reconnect (W4) --------------------------------
-// A stdin/tty picker + prompts, a non-blocking pre-flight join, and an async
-// reconnect monitor. All the branch/state logic is dependency-injectable so
-// --selftest exercises every path with a synthetic backend — no radio, no car.
-
-// TTY = both stdin AND stderr are terminals. In Game Mode / launched from Steam
-// (or piped) this is false, so the picker auto-picks the first car instead of
-// hanging on a prompt with no interactive polkit agent behind it.
-function isInteractive() {
-  return Boolean(process.stdin.isTTY && process.stderr.isTTY);
-}
-
-// Ask one question on the tty (prompt on stderr so stdout/--list stay clean),
-// resolve the typed line. Only called when isInteractive() is true.
-function promptLine(q) {
-  return new Promise((resolve) => {
-    const rl = readline.createInterface({ input: process.stdin, output: process.stderr });
-    rl.question(q, (ans) => { rl.close(); resolve(ans); });
-  });
-}
-
-// macOS native car chooser (no CAR_SSID typing). Given the discovered SAVED cars,
-// draw a native dialog with osascript: ONE car -> a "Connect to <ssid>?" confirm;
-// SEVERAL -> a "choose from list". SSIDs are passed as osascript run-arguments
-// (`on run argv` + a trailing `-- <args>`), so a name with spaces is DATA, never
-// interpolated into a shell string (spawn is shell:false too). Returns one of:
-//   { status: "pick", ssid }  user chose a car
-//   { status: "cancel" }      user dismissed the dialog (osascript -128)
-//   { status: "nogui" }       no window server (ssh/headless) — caller degrades
-// Never involves the WPA2 password (that stays inside wifi/connect.mjs), so nothing
-// sensitive can leak here.
-function macPickCar(cars) {
-  return new Promise((resolve) => {
-    const args =
-      cars.length === 1
-        ? ["-e", "on run argv",
-           "-e", 'display dialog "Connect to " & (item 1 of argv) & "?" buttons {"Cancel", "Connect"} default button "Connect"',
-           "-e", "end run", "--", cars[0]]
-        : ["-e", "on run argv",
-           "-e", 'set chosen to choose from list argv with prompt "Which car?"',
-           "-e", "if chosen is false then error number -128",
-           "-e", "return item 1 of chosen",
-           "-e", "end run", "--", ...cars];
-    let out = "", err = "";
-    let child;
-    try {
-      child = spawn("osascript", args, { shell: false });
-    } catch {
-      resolve({ status: "nogui" });
-      return;
-    }
-    child.stdout?.on("data", (d) => (out += d));
-    child.stderr?.on("data", (d) => (err += d));
-    child.on("error", () => resolve({ status: "nogui" }));
-    child.on("close", (code) => {
-      if (code === 0) {
-        // confirm dialog returns the button; the list returns the chosen SSID line.
-        resolve({ status: "pick", ssid: cars.length === 1 ? cars[0] : String(out).trim() });
-      } else if (/-128|user cancel/i.test(String(err))) {
-        resolve({ status: "cancel" });
-      } else {
-        resolve({ status: "nogui" }); // e.g. -1713 "No user interaction allowed" over ssh
-      }
-    });
-  });
-}
-
 // Single-radio caveat: joining the car AP drops this device's internet. Say it
 // once (pre-flight or first successful rejoin), never on every reconnect.
 function noInternetCaveat() {
@@ -1069,214 +1001,20 @@ function noInternetCaveat() {
   console.error("[wifi] joined the car — this device now has no internet, expected");
 }
 
-// Pre-flight: bring the car network up BEFORE the driver starts. NON-FATAL end to
-// end — a failed/absent auto-connect still lets the app run (already-joined net or
-// CAR_IP override keeps working), matching the existing behavior. Returns a small
-// result object ({action, ssid, ok?, reason?}) so --selftest can assert branches.
-// deps overrides (wifi/prompt/interactive/carSsid/noAutoconnect/log) are for tests.
 async function connectCar(deps = {}) {
-  const w = deps.wifi || wifi;
-  const carSsid = deps.carSsid != null ? deps.carSsid : CAR_SSID;
-  const noAuto = deps.noAutoconnect != null ? deps.noAutoconnect : NO_AUTOCONNECT;
-  const interactive = deps.interactive != null ? deps.interactive : isInteractive;
-  const prompt = deps.prompt || promptLine;
-  const pickCar = deps.pickCar || macPickCar; // macOS native Connect/pick dialog (injectable for --selftest)
-  const nap = deps.sleep || sleep;            // poll delay (injectable so --selftest doesn't really wait)
-  const log = deps.log || ((m) => console.error(m));
-  const isTty = () => (typeof interactive === "function" ? interactive() : interactive);
-  const remember = deps.remember || saveLastCar;  // injectable so --selftest never touches $HOME
-  const lastKnown = deps.lastCar !== undefined ? deps.lastCar : loadLastCar();
-  const pickOsd = deps.pickOsd || pickCarOnOsd;   // Game Mode gamepad picker (injectable)
-
-  // Shared join + result messaging (one code path for Linux, the macOS CAR_SSID
-  // override, and the macOS discovered-car dialog). notInRangeMsg overrides the
-  // generic "couldn't join" line so the macOS dialog path can point the user back
-  // to Wi-Fi settings. Sets lastSsid so W4 can rejoin-on-drop.
-  const finishJoin = async (theSsid, notInRangeMsg, joinOpts) => {
-    lastSsid = theSsid; // remember for W4 even if this join fails (car may be booting)
-    log(`[wifi] joining ${theSsid}…`);
-    let res;
-    try { res = await w.joinCar(theSsid, undefined, joinOpts); } catch (e) { res = { ok: false, reason: String((e && e.message) || e) }; }
-    if (res && res.ok) {
-      remember(theSsid); // this one demonstrably works — prefer it next launch
-      noInternetCaveat();
-      return { action: "join", ssid: theSsid, ok: true };
-    }
-    if (res && res.reason === "badpw") {
-      log(`[wifi] wrong password for "${theSsid}" — check the SSID digits (not retrying)`);
-    } else if (res && res.reason === "notcar") {
-      log(`[wifi] "${theSsid}" isn't a car SSID (expected WL FPV CAR <8+ digits>) — continuing`);
-      lastSsid = null; // don't let W4 retry a non-car SSID
-    } else {
-      // ALWAYS surface the underlying reason — the friendly "not in range" line used
-      // to replace it entirely, which hid whether the join really failed to find the
-      // AP, timed out waiting for the car's gateway, or was rejected outright.
-      const why = (res && res.reason) || "failed";
-      log(notInRangeMsg ? `${notInRangeMsg} [${why}]`
-        : `[wifi] couldn't join "${theSsid}" (${why}) — continuing; will keep trying while driving`);
-    }
-    return { action: "join", ssid: theSsid, ok: false, reason: res && res.reason };
-  };
-
-  if (noAuto) {
-    log("[wifi] NO_AUTOCONNECT set — using whatever network is already joined");
-    return { action: "skip", ssid: null };
-  }
-
-  // Already on the car? Linux reads the SSID; macOS answers by gateway (SSID is
-  // redacted). Skip scan/join entirely and just remember an SSID for W4 if we can.
-  let already = false;
-  try { already = await w.onCarAP(); } catch { already = false; }
-  if (already) {
-    log("[wifi] already on the car");
-    if (!lastSsid) {
-      let cc = null;
-      try { cc = await w.currentCar(); } catch { cc = null; }
-      lastSsid = (typeof cc === "string" && matchCarSsid(cc)) ? cc.trim() : (carSsid || lastKnown || null);
-      if (lastSsid && lastSsid === lastKnown) log(`[wifi] rejoin-on-drop armed for ${lastSsid} (last car used)`);
-      // macOS redacts the live SSID, so currentCar() is null there and rejoin-on-drop
-      // ended up silently OFF for every Mac user who started already joined — the
-      // one case where a mid-drive drop is most likely. If exactly one car is in the
-      // saved list, that is necessarily the one we are on.
-      if (!lastSsid && w.savedCars) {
-        try {
-          const saved = await w.savedCars();
-          if (saved && saved.length === 1) {
-            lastSsid = saved[0];
-            log(`[wifi] rejoin-on-drop armed for ${lastSsid} (inferred — macOS hides the live SSID)`);
-          }
-        } catch { /* non-fatal: rejoin just stays off */ }
-      }
-    }
-    return { action: "already", ssid: lastSsid };
-  }
-
-  // Choose an SSID to join.
-  let ssid = null;
-  if (w.SCAN_SUPPORTED) {
-    // Linux/Deck: scan -> 0 (message, continue) / 1 (auto) / >=2 (picker).
-    let cars = [];
-    try { cars = await w.scanCars(); } catch { cars = []; }
-    if (carSsid) {
-      ssid = carSsid;
-    } else if (cars.length === 0) {
-      log("[wifi] no car found — power it on / move in range (or set CAR_SSID)");
-      if (process.platform === "win32" && w.openWifiPicker) {
-        await w.openWifiPicker();
-        for (let i = 0; i < 15; i++) {
-          await nap(1000);
-          if (await w.onCarAP()) {
-            lastSsid = await w.currentCar();
-            if (lastSsid) remember(lastSsid);
-            noInternetCaveat();
-            return { action: "join", ssid: lastSsid, ok: true };
-          }
-        }
-      }
-      return { action: "nojoin", ssid: null };
-    } else if (cars.length === 1) {
-      ssid = cars[0];
-      log(`[wifi] found ${ssid}`);
-    } else if (lastKnown && cars.includes(lastKnown)) {
-      // Several cars in range, but one of them is the car this install last drove.
-      // Prefer it silently on EVERY path (tty and Game Mode alike) — asking again
-      // for a choice the user already made is the actual annoyance.
-      ssid = lastKnown;
-      log(`[wifi] ${cars.length} cars in range — using ${ssid} (last car used)`);
-    } else if (isTty()) {
-      log("[wifi] multiple cars found:");
-      cars.forEach((s, i) => log(`  [${i}] ${s}`));
-      const ans = String(await prompt(`[wifi] which car? [0-${cars.length - 1}] (default 0): `)).trim();
-      const idx = ans === "" ? 0 : Number(ans);
-      if (Number.isInteger(idx) && idx >= 0 && idx < cars.length) ssid = cars[idx];
-      else { ssid = cars[0]; log(`[wifi] invalid choice — using ${cars[0]}`); }
-    } else {
-      // Game Mode: no tty and no remembered car. Put the choice on the screen the
-      // user is actually looking at, driven by the gamepad they already hold —
-      // auto-picking "the first" was a coin flip between someone else's car and yours.
-      let picked = null;
-      try { picked = await pickOsd(cars); } catch { picked = null; }
-      ssid = picked || cars[0];
-      log(picked ? `[wifi] picked ${ssid} on screen` : `[wifi] ${cars.length} cars found; no picker available — using ${ssid}`);
-    }
-  } else {
-    // macOS: no CAR_SSID typing. CAR_SSID env is still an explicit override; else
-    // discover the SAVED (preferred) cars and show a native Connect/pick dialog.
-    if (carSsid) {
-      ssid = carSsid; // override path — join directly via the shared handler below
-    } else {
-      let saved = [];
-      try { saved = await w.savedCars(); } catch { saved = []; }
-
-      if (saved.length === 0) {
-        // Never paired: open Wi-Fi settings once so the user can pick the car, then
-        // poll the gateway for a short while to see if they landed on it. macOS
-        // redacts the joined SSID, so we can't learn its name this way — rejoin-on-
-        // drop (W4) needs a known SSID, so it stays OFF unless CAR_SSID is set.
-        log("[wifi] no saved car — pick your car in Wi-Fi settings");
-        try { await w.openWifiPicker(); } catch { /* non-fatal (headless/ssh) */ }
-        for (let i = 0; i < 15; i++) {
-          await nap(1000);
-          let on = false;
-          try { on = await w.onCarAP(); } catch { on = false; }
-          if (on) {
-            log("[wifi] joined — driving");
-            lastSsid = carSsid && matchCarSsid(carSsid) ? carSsid.trim() : null;
-            if (!lastSsid) log("[wifi] note: rejoin-on-drop is off — SSID is unknown after the system picker (set CAR_SSID to enable it)");
-            noInternetCaveat();
-            return { action: "join", ssid: lastSsid, ok: true };
-          }
-        }
-        return { action: "nojoin", ssid: null }; // non-fatal: run on the current net
-      }
-
-      // 1 or 2+ saved cars -> native dialog (confirm / choose-from-list).
-      // macOS cannot enumerate which cars are actually BROADCASTING — the scan works
-      // but every SSID comes back redacted, so the saved list is history, not
-      // presence. Association is therefore the only honest presence test. Try the
-      // car we last drove first (no dialog: the user already chose it), then probe
-      // the rest one attempt each, which is what turns "not in range" into "that one
-      // isn't here, this one is".
-      // Only meaningful if the remembered car is one we still have credentials for;
-      // a remembered SSID absent from the saved list can't be joined anyway.
-      const known = lastKnown && saved.includes(lastKnown) ? lastKnown : null;
-      const ordered = known ? [known, ...saved.filter((s) => s !== known)] : saved;
-      if (known) {
-        for (let i = 0; i < ordered.length; i++) {
-          const cand = ordered[i];
-          const first = i === 0;
-          // Full retry budget for the remembered car (it may still be booting);
-          // a single quick attempt for the others, purely to see if they answer.
-          const r = await finishJoin(cand,
-            `[wifi] ${cand} did not answer`, first ? undefined : { tries: 1 });
-          if (r && r.ok) return r;
-        }
-        log("[wifi] none of the saved cars answered — continuing on the current network");
-        return { action: "nojoin", ssid: null };
-      }
-
-      const pick = await pickCar(saved);
-      if (pick.status === "cancel") {
-        log("[wifi] cancelled — continuing on the current network");
-        return { action: "nojoin", ssid: null };
-      }
-      let chosen;
-      if (pick.status === "nogui") {
-        // No window server (ssh/headless): degrade to non-interactive — 1 auto-join,
-        // 2+ auto-pick the first (mirrors the Linux Game-Mode fallback).
-        chosen = saved[0];
-        log(saved.length === 1
-          ? `[wifi] no GUI available — auto-joining ${chosen}`
-          : `[wifi] no GUI available — ${saved.length} saved cars; auto-picking ${chosen}`);
-      } else {
-        chosen = pick.ssid;
-      }
-      return finishJoin(chosen, `[wifi] ${chosen} not in range — power it on, or pick another in Wi-Fi settings`);
-    }
-  }
-
-  if (!ssid) return { action: "nojoin", ssid: null };
-  return finishJoin(ssid);
+  const remember = deps.remember || saveLastCar;
+  const result = await connectToCar({
+    wifi: deps.wifi || wifi,
+    ui: deps.ui || startupScreen,
+    noAutoconnect: deps.noAutoconnect ?? NO_AUTOCONNECT,
+    carSsid: deps.carSsid ?? CAR_SSID,
+    preferred: deps.lastCar !== undefined ? deps.lastCar : loadLastCar(),
+    remember, chosen: (ssid) => { lastSsid = ssid; },
+    log: deps.log || ((message) => console.error(message)),
+    retry: deps.retry ?? true, sleep: deps.sleep || sleep,
+  });
+  if (result.ok) noInternetCaveat();
+  return result;
 }
 
 // W4 reconnect monitor — a self-contained, injectable state machine so the whole
@@ -1590,158 +1328,54 @@ async function selftest() {
   // waiting. caveatShown pre-set so the one-time "no internet" note stays quiet.
   caveatShown = true;
   try {
-    const fakeWifi = (over = {}) => {
-      const calls = { scan: 0, saved: 0, onCarAP: 0, openPicker: 0, join: [] };
-      return {
-        calls,
-        SCAN_SUPPORTED: over.SCAN_SUPPORTED ?? true,
-        // onCarAP may be a bool OR a fn(callIndex) so the macOS 0-saved poll can flip
-        // false (the "already?" probe) -> true (landed on the car after the picker).
-        onCarAP: async () => { const i = calls.onCarAP++; return (typeof over.onCarAP === "function" ? over.onCarAP(i) : over.onCarAP) ?? false; },
-        scanCars: async () => { calls.scan++; return over.scanCars ?? []; },
-        savedCars: async () => { calls.saved++; return over.savedCars ?? []; },
-        openWifiPicker: async () => { calls.openPicker++; return over.openPicker ?? true; },
-        currentCar: async () => (over.currentCar ?? null),
-        joinCar: async (ssid) => { calls.join.push(ssid); return over.joinResult ?? { ok: true }; },
-      };
-    };
     const silent = () => {};
-    // Every preflight case starts with NO remembered car and persists nothing, so one
-    // case can't leak a joined SSID into the next one's expectations. Cases that are
-    // specifically about the memory pass their own lastCar/remember, which win.
-    const preflight = (opts) => connectCar({ remember: () => {}, lastCar: null, ...opts });
-    const noNap = async () => {}; // don't really sleep during the macOS poll test
-    // fake native picker: "pick"->chose ssid, "cancel"->dismissed, "nogui"->headless
-    const fakePick = (status, ssid) => async () => (status === "pick" ? { status, ssid } : { status });
-
-    // ---- pre-flight branches ------------------------------------------------
-    lastSsid = null; reconnecting = false;
-    const r1 = await preflight({ wifi: fakeWifi({ onCarAP: true }), noAutoconnect: false, carSsid: "", log: silent });
-    check("preflight: already-on car -> skip (no scan/join)", r1.action === "already");
-
-    const w2 = fakeWifi({ scanCars: [] });
-    const r2 = await preflight({ wifi: w2, noAutoconnect: false, carSsid: "", interactive: () => false, log: silent });
-    check("preflight: 0 found -> non-fatal nojoin (app proceeds)", r2.action === "nojoin" && w2.calls.join.length === 0);
-
-    const w3 = fakeWifi({ scanCars: ["WL FPV CAR 75899112"] });
-    const r3 = await preflight({ wifi: w3, noAutoconnect: false, carSsid: "", interactive: () => false, log: silent });
-    check("preflight: exactly 1 found -> joinCar(that SSID)", r3.action === "join" && w3.calls.join[0] === "WL FPV CAR 75899112");
-
-    // ---- last-known car + Game Mode picker --------------------------------
-    // The remembered car wins over any prompt/picker, on every path — re-asking
-    // for a choice already made is the annoyance being fixed here.
-    const wLK = fakeWifi({ scanCars: ["WL FPV CAR 11111111", "WL FPV CAR 22222222"] });
-    const rLK = await preflight({ wifi: wLK, noAutoconnect: false, carSsid: "", interactive: () => true,
-      prompt: async () => { throw new Error("must not prompt when a car is remembered"); },
-      lastCar: "WL FPV CAR 22222222", remember: () => {}, log: silent });
-    check("last-known car in range -> joined without prompting", rLK.ssid === "WL FPV CAR 22222222" && wLK.calls.join[0] === "WL FPV CAR 22222222");
-
-    // Remembered car NOT in range -> fall back to choosing among what is there.
-    const wLK2 = fakeWifi({ scanCars: ["WL FPV CAR 11111111"] });
-    const rLK2 = await preflight({ wifi: wLK2, noAutoconnect: false, carSsid: "", interactive: () => false,
-      lastCar: "WL FPV CAR 99999999", remember: () => {}, log: silent });
-    check("remembered car absent -> uses the car actually in range", rLK2.ssid === "WL FPV CAR 11111111");
-
-    // A successful join must persist the SSID for next launch.
-    let remembered = null;
-    const wRem = fakeWifi({ scanCars: ["WL FPV CAR 33333333"] });
-    await preflight({ wifi: wRem, noAutoconnect: false, carSsid: "", interactive: () => false,
-      lastCar: null, remember: (s) => { remembered = s; }, log: silent });
-    check("successful join is remembered for next launch", remembered === "WL FPV CAR 33333333");
-
-    // Game Mode (no tty, no memory, several cars) -> the on-screen picker decides,
-    // instead of blind-picking the first, which was a coin flip between cars.
-    let offered = null;
-    const wOsd = fakeWifi({ scanCars: ["WL FPV CAR 11111111", "WL FPV CAR 22222222"] });
-    const rOsd = await preflight({ wifi: wOsd, noAutoconnect: false, carSsid: "", interactive: () => false,
-      lastCar: null, remember: () => {},
-      pickOsd: async (cars) => { offered = cars; return cars[1]; }, log: silent });
-    check("Game Mode: OSD picker is offered every in-range car", offered && offered.length === 2);
-    check("Game Mode: the OSD pick is what gets joined", rOsd.ssid === "WL FPV CAR 22222222");
-
-    // No mpv on the box -> picker returns null -> must still join something.
-    const wOsd2 = fakeWifi({ scanCars: ["WL FPV CAR 11111111", "WL FPV CAR 22222222"] });
-    const rOsd2 = await preflight({ wifi: wOsd2, noAutoconnect: false, carSsid: "", interactive: () => false,
-      lastCar: null, remember: () => {}, pickOsd: async () => null, log: silent });
-    check("Game Mode: no picker available -> still joins a car", rOsd2.action === "join" && rOsd2.ssid === "WL FPV CAR 11111111");
-
-    const w4 = fakeWifi({ scanCars: ["WL FPV CAR 11111111", "WL FPV CAR 22222222"] });
-    const r4 = await preflight({ wifi: w4, noAutoconnect: false, carSsid: "", interactive: () => true, prompt: async () => "1", log: silent });
-    check("preflight: >=2 picker (tty choice '1') -> joins chosen", w4.calls.join[0] === "WL FPV CAR 22222222" && r4.ssid === "WL FPV CAR 22222222");
-
-    const w5 = fakeWifi({ scanCars: ["WL FPV CAR 11111111", "WL FPV CAR 22222222"] });
-    // Non-TTY now routes through the on-screen picker; auto-pick-first survives only
-    // as the degrade path when there is no overlay surface (no mpv).
-    const r5 = await preflight({ wifi: w5, noAutoconnect: false, carSsid: "", interactive: () => false,
-      pickOsd: async () => null, log: silent });
-    check("preflight: >=2 non-TTY with no picker -> auto-picks first", w5.calls.join[0] === "WL FPV CAR 11111111" && r5.ssid === "WL FPV CAR 11111111");
-
-    const w6 = fakeWifi({ SCAN_SUPPORTED: false });
-    await preflight({ wifi: w6, noAutoconnect: false, carSsid: "WL FPV CAR 75899112", interactive: () => false, log: silent });
-    check("preflight: macOS CAR_SSID override -> join directly (no scan, no savedCars, no picker)", w6.calls.scan === 0 && w6.calls.saved === 0 && w6.calls.openPicker === 0 && w6.calls.join[0] === "WL FPV CAR 75899112");
-
-    // ---- macOS discovery: NO CAR_SSID typing (savedCars + native dialog) -----
-    // 0 saved -> open Wi-Fi settings once + poll onCarAP; it flips true -> joined.
-    lastSsid = null;
-    const wm0 = fakeWifi({ SCAN_SUPPORTED: false, savedCars: [], onCarAP: (i) => i >= 1 });
-    const rm0 = await preflight({ wifi: wm0, noAutoconnect: false, carSsid: "", pickCar: fakePick("pick"), sleep: noNap, log: silent });
-    check("preflight: macOS 0 saved -> opens Wi-Fi picker + polls; onCarAP true -> joined", rm0.action === "join" && rm0.ok === true && wm0.calls.openPicker === 1 && wm0.calls.join.length === 0);
-
-    // 0 saved + never lands on the car -> opened picker, non-fatal nojoin.
-    lastSsid = null;
-    const wm0b = fakeWifi({ SCAN_SUPPORTED: false, savedCars: [], onCarAP: () => false });
-    const rm0b = await preflight({ wifi: wm0b, noAutoconnect: false, carSsid: "", pickCar: fakePick("pick"), sleep: noNap, log: silent });
-    check("preflight: macOS 0 saved + never on -> opened picker, non-fatal nojoin", rm0b.action === "nojoin" && wm0b.calls.openPicker === 1 && wm0b.calls.join.length === 0);
-
-    // 1 saved -> native confirm dialog; Connect -> joinCar(that car).
-    lastSsid = null;
-    const wm1 = fakeWifi({ SCAN_SUPPORTED: false, savedCars: ["WL FPV CAR 64462168"] });
-    const rm1 = await preflight({ wifi: wm1, noAutoconnect: false, carSsid: "", pickCar: fakePick("pick", "WL FPV CAR 64462168"), sleep: noNap, log: silent });
-    check("preflight: macOS 1 saved -> confirm dialog -> joins that car (no picker window)", rm1.action === "join" && wm1.calls.join[0] === "WL FPV CAR 64462168" && wm1.calls.openPicker === 0);
-
-    // 1 saved -> Cancel -> non-fatal, never joins.
-    lastSsid = null;
-    const wm1c = fakeWifi({ SCAN_SUPPORTED: false, savedCars: ["WL FPV CAR 64462168"] });
-    const rm1c = await preflight({ wifi: wm1c, noAutoconnect: false, carSsid: "", pickCar: fakePick("cancel"), sleep: noNap, log: silent });
-    check("preflight: macOS 1 saved -> Cancel -> non-fatal nojoin (never joins)", rm1c.action === "nojoin" && wm1c.calls.join.length === 0);
-
-    // 2+ saved -> choose-from-list -> joinCar(the pick).
-    lastSsid = null;
-    const wm2 = fakeWifi({ SCAN_SUPPORTED: false, savedCars: ["WL FPV CAR 11111111", "WL FPV CAR 22222222"] });
-    const rm2 = await preflight({ wifi: wm2, noAutoconnect: false, carSsid: "", pickCar: fakePick("pick", "WL FPV CAR 22222222"), sleep: noNap, log: silent });
-    check("preflight: macOS 2+ saved -> choose-from-list -> joins the pick", rm2.action === "join" && wm2.calls.join[0] === "WL FPV CAR 22222222");
-
-    // 2+ saved -> cancel -> non-fatal nojoin.
-    lastSsid = null;
-    const wm2c = fakeWifi({ SCAN_SUPPORTED: false, savedCars: ["WL FPV CAR 11111111", "WL FPV CAR 22222222"] });
-    const rm2c = await preflight({ wifi: wm2c, noAutoconnect: false, carSsid: "", pickCar: fakePick("cancel"), sleep: noNap, log: silent });
-    check("preflight: macOS 2+ saved -> cancel -> non-fatal nojoin", rm2c.action === "nojoin" && wm2c.calls.join.length === 0);
-
-    // not-in-range (joinCar reason) -> reported, non-fatal, SSID kept for W4 rejoin.
-    lastSsid = null;
-    const wmnr = fakeWifi({ SCAN_SUPPORTED: false, savedCars: ["WL FPV CAR 64462168"], joinResult: { ok: false, reason: "gateway never matched car" } });
-    const rmnr = await preflight({ wifi: wmnr, noAutoconnect: false, carSsid: "", pickCar: fakePick("pick", "WL FPV CAR 64462168"), sleep: noNap, log: silent });
-    check("preflight: macOS not-in-range -> non-fatal, join attempted, SSID kept for W4", rmnr.action === "join" && rmnr.ok === false && wmnr.calls.join[0] === "WL FPV CAR 64462168" && lastSsid === "WL FPV CAR 64462168");
-
-    // no GUI (ssh/headless) fallback: 1 saved -> auto-join it.
-    lastSsid = null;
-    const wmg1 = fakeWifi({ SCAN_SUPPORTED: false, savedCars: ["WL FPV CAR 64462168"] });
-    await preflight({ wifi: wmg1, noAutoconnect: false, carSsid: "", pickCar: fakePick("nogui"), sleep: noNap, log: silent });
-    check("preflight: macOS no-GUI + 1 saved -> auto-joins it", wmg1.calls.join[0] === "WL FPV CAR 64462168");
-
-    // no GUI fallback: 2+ saved -> auto-pick the first.
-    lastSsid = null;
-    const wmg2 = fakeWifi({ SCAN_SUPPORTED: false, savedCars: ["WL FPV CAR 11111111", "WL FPV CAR 22222222"] });
-    await preflight({ wifi: wmg2, noAutoconnect: false, carSsid: "", pickCar: fakePick("nogui"), sleep: noNap, log: silent });
-    check("preflight: macOS no-GUI + 2+ saved -> auto-picks the first", wmg2.calls.join[0] === "WL FPV CAR 11111111");
-
-    const w8 = fakeWifi({ onCarAP: false });
-    const r8 = await preflight({ wifi: w8, noAutoconnect: true, log: silent });
-    check("preflight: NO_AUTOCONNECT -> skip entirely", r8.action === "skip" && w8.calls.scan === 0 && w8.calls.join.length === 0);
-
-    const w9 = fakeWifi({ scanCars: ["WL FPV CAR 75899112"], joinResult: { ok: false, reason: "badpw" } });
-    const r9 = await preflight({ wifi: w9, noAutoconnect: false, carSsid: "", interactive: () => false, log: silent });
-    check("preflight: bad password -> reported, not looped", r9.ok === false && r9.reason === "badpw" && w9.calls.join.length === 1);
+    const fakeWifi = (cars, over = {}) => {
+      const joins = [];
+      return { joins, scanCars: async () => cars, currentCar: async () => null,
+        joinCar: async (ssid) => { joins.push(ssid); return { ok: true }; }, ...over };
+    };
+    const fakeUi = (pick) => ({ closed: false, states: [], offered: null,
+      status(title) { this.states.push(title); },
+      async choose(cars, preferred) { this.offered = cars; this.preferred = preferred; return pick; },
+    });
+    const preflight = (wifi, ui, over = {}) => connectCar({ wifi, ui, noAutoconnect: false,
+      carSsid: "", lastCar: null, remember: () => {}, retry: false, log: silent, ...over });
+    const first = "WL FPV CAR 11111111", second = "WL FPV CAR 22222222";
+    const none = fakeWifi([]), noneUi = fakeUi();
+    const r0 = await preflight(none, noneUi);
+    check("startup: no cars stays visible and sends no join", r0.action === "nojoin" && none.joins.length === 0 && noneUi.states.includes("No cars found yet"));
+    const single = fakeWifi([first]), singleUi = fakeUi();
+    const r1 = await preflight(single, singleUi);
+    check("startup: one never-paired car auto-connects without a picker", r1.ok && single.joins[0] === first && singleUi.offered === null);
+    const multi = fakeWifi([first, second]), multiUi = fakeUi(second);
+    const r2 = await preflight(multi, multiUi, { lastCar: first });
+    check("startup: multiple nearby cars always show a picker, even with a remembered car", multiUi.offered?.length === 2 && multiUi.preferred === first);
+    check("startup: only the explicitly chosen car is joined", r2.ssid === second && multi.joins.length === 1 && multi.joins[0] === second);
+    const cancelled = fakeWifi([first, second]);
+    const r3 = await preflight(cancelled, fakeUi(null));
+    check("startup: cancelling the picker never auto-selects a car", r3.action === "cancel" && cancelled.joins.length === 0);
+    const onCar = fakeWifi([first, second], { currentCar: async () => first });
+    const onUi = fakeUi(first);
+    const r4 = await preflight(onCar, onUi);
+    check("startup: already connected still chooses among multiple nearby cars", r4.action === "already" && onUi.offered.length === 2 && onCar.joins.length === 0);
+    const denied = fakeWifi([], { scanCars: async () => { const error = Error("Allow Wi-Fi discovery"); error.code = "permission"; throw error; } });
+    const deniedUi = fakeUi();
+    const r5 = await preflight(denied, deniedUi);
+    check("startup: discovery permission is shown separately from an empty scan", r5.reason === "permission" && deniedUi.states.includes("Allow nearby-car discovery") && !deniedUi.states.includes("No cars found yet"));
+    const failed = fakeWifi([first], { joinCar: async () => ({ ok: false, reason: "retry" }) });
+    const failedUi = fakeUi();
+    const r6 = await preflight(failed, failedUi);
+    check("startup: failed join remains a visible failure", r6.ok === false && failedUi.states.includes("Could not connect"));
+    let scans = 0, remembered = null;
+    const appearing = fakeWifi([], { scanCars: async () => ++scans === 1 ? [] : [second] });
+    const r7 = await preflight(appearing, fakeUi(), { retry: true, sleep: async () => {}, remember: (ssid) => { remembered = ssid; } });
+    check("startup: a car powered on later is discovered and automatically joined", scans === 2 && r7.ok && remembered === second);
+    const skip = fakeWifi([]);
+    const r8 = await preflight(skip, fakeUi(), { noAutoconnect: true });
+    check("startup: explicit NO_AUTOCONNECT keeps the current network", r8.action === "skip" && skip.joins.length === 0);
+    const override = fakeWifi([], { scanCars: async () => { throw Error("must not scan with an explicit choice"); } });
+    const r9 = await preflight(override, fakeUi(), { carSsid: first });
+    check("startup: explicit CAR_SSID remains an advanced direct choice", r9.ok && override.joins[0] === first);
 
     // ---- W4 reconnect state machine ----------------------------------------
     const seqSample = (seq) => { let i = 0; return async () => seq[Math.min(i++, seq.length - 1)]; };
@@ -1832,7 +1466,8 @@ if (process.argv.includes("--list")) {
     ? arg.split(",").map((s) => s.trim()).filter(Boolean)
     : ["WL FPV CAR 11111111", "WL FPV CAR 22222222", "WL FPV CAR 33333333"];
   openGamepad(false);
-  pickCarOnOsd(list, { timeoutMs: Number(process.env.PICK_TIMEOUT_MS ?? 45000) })
+  openKeyboardHelper();
+  pickCarOnOsd(list)
     .then((s) => { startupScreen?.player.kill(); console.log(`picked: ${s}`); process.exit(0); })
     .catch((e) => { console.error(`pick failed: ${e && e.message}`); process.exit(1); });
 } else if (process.argv.includes("--hud-demo")) {
@@ -1854,14 +1489,13 @@ async function main() {
     screen = await openStartupScreen();
     screen.player.once("exit", (code) => { if (!driving) { stopKeyboard(); process.exit(code || 0); } });
   }
-  await connectCar(screen ? { pickOsd: (cars) => screen.choose(cars, loadLastCar()), log: (message) => {
-    console.error(message);
-    screen.status("Connecting to your car", message.replace(/^\[wifi\] /, ""));
-  } } : {});
+  const connection = await connectCar();
+  if (connection.action === "cancel") { screen?.player.kill(); stopKeyboard(); process.exit(0); }
   wifiPowerSaveOff();
   if (screen) {
     await screen.play({ mode: VIDEO_MODE, rtsp: RTSP, transport: RTSP_TRANSPORT,
       fps: Number(process.env.VIDEO_FPS ?? 25), lowLatency: process.env.VIDEO_LOWLAT !== "0" });
+    fs.writeFileSync(path.join(SESSION_DIR, "wifi-stop"), "");
     screen.dispose(); startupScreen = null; picking = false; awaitingNeutral = true;
   }
   const video = startVideo(screen?.player);

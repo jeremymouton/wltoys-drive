@@ -1,41 +1,7 @@
-// Platform WiFi connect backends for the WLtoys 6401 auto-connect feature (T2).
-//
-// WHY this file: the pure string/exit-code logic lives in ./core.mjs (T1). This
-// module is the thin platform layer that actually talks to the OS WiFi tooling —
-// nmcli on Linux/SteamOS, networksetup + ipconfig on macOS — and exposes ONE
-// common async surface that drive.mjs / run.sh (T3) call regardless of platform:
-//
-//   scanCars()            -> Promise<string[]>            list nearby car SSIDs
-//   savedCars()           -> Promise<string[]>            list SAVED (preferred) car SSIDs
-//   openWifiPicker()      -> Promise<boolean>             open the OS Wi-Fi picker (macOS)
-//   onCarAP(carIp)        -> Promise<boolean>             are we on the car AP now?
-//   currentCar()          -> Promise<string|null>         which car (or null)
-//   joinCar(ssid, carIp)  -> Promise<{ok, reason?}>       join a car AP
-//   SCAN_SUPPORTED        -> boolean                      false on macOS (scan dead)
-//   wifiIface()           -> Promise<string>              macOS Wi-Fi device (en0…)
-//
-// Platform split (from docs/research/{linux-wifi-nmcli,macos-wifi-connect}.md):
-//   Linux  — full nmcli auto-discovery (scan/join/current all via nmcli argv).
-//   macOS  — scanning from a CLI is EMPIRICALLY DEAD (CoreWLAN returns nil SSIDs,
-//            SSID strings are redacted). So SCAN_SUPPORTED=false, scanCars()->[],
-//            and car-presence is answered by the FIXED GATEWAY (172.16.11.1) via
-//            `ipconfig getoption <iface> router`, never by reading the SSID name.
-//            Discovery instead reads the user's SAVED (preferred) networks —
-//            `networksetup -listpreferredwirelessnetworks <iface>` returns REAL SSID
-//            names with NO scan, NO Location permission, NO sudo — so a car the user
-//            has ever joined is offered by name with zero CAR_SSID typing; a
-//            never-paired car is handled by openWifiPicker() (open Wi-Fi settings).
-//
-// Security (spec W1.8 / Security): every spawn uses an argv array + shell:false
-// (no shell string, so an SSID with spaces can't inject args); the WPA2 password
-// is derived from the SSID (core.derivePw) and passed ONLY as an argv element —
-// it is NEVER interpolated into a shell string and NEVER logged. This module does
-// no logging at all (logging is T3's job) precisely so the pw can't leak here.
-// Every SSID is validated with matchCarSsid() before a pw is derived or a connect
-// is issued. All parsing calls run under LC_ALL=C for stable, locale-independent
-// field text. Zero npm deps — only node:child_process. Style matches drive.mjs.
-
 import { spawn } from "node:child_process";
+import fs from "node:fs";
+import path from "node:path";
+import { SESSION_DIR } from "../runtime.mjs";
 import { windowsBackend } from "./windows.mjs";
 import { matchCarSsid, derivePw, splitTerse, parseSsidList, classifyNmcliExit } from "./core.mjs";
 
@@ -60,19 +26,24 @@ function realRun(cmd, args) {
   return new Promise((resolve) => {
     let stdout = "";
     let stderr = "";
-    let done = false;
+    let done = false, timeout;
+    let child;
+    const cancel = () => child?.kill();
     const finish = (r) => {
       if (done) return;
       done = true;
+      clearTimeout(timeout);
+      process.off("exit", cancel);
       resolve(r);
     };
-    let child;
     try {
       child = spawn(cmd, args, { shell: false, env: { ...process.env, LC_ALL: "C" } });
     } catch (err) {
       finish({ code: 127, stdout: "", stderr: String((err && err.message) || err) });
       return;
     }
+    process.once("exit", cancel);
+    timeout = setTimeout(() => { cancel(); finish({ code: 124, stdout, stderr: "Wi-Fi command timed out" }); }, 35000);
     child.stdout?.on("data", (d) => (stdout += d));
     child.stderr?.on("data", (d) => (stderr += d));
     child.on("error", (err) => finish({ code: 127, stdout, stderr: String((err && err.message) || err) }));
@@ -135,7 +106,10 @@ async function linuxActiveSsid() {
 
 async function linuxScanCars() {
   const { code, stdout } = await run("nmcli", ["-g", "SSID", "device", "wifi", "list", "--rescan", "yes"]);
-  if (code !== 0) return [];
+  if (code !== 0) {
+    const error = Error("Wi-Fi discovery failed. Check that Wi-Fi is on and allow network access.");
+    error.code = "scan"; throw error;
+  }
   return parseSsidList(stdout);
 }
 
@@ -169,10 +143,33 @@ async function macOnCarAP(carIp = CAR_IP_DEFAULT) {
   return code === 0 && String(stdout).trim() === carIp;
 }
 
+let scanSequence = 0;
+async function macScanCars() {
+  if (!fs.existsSync(path.join(SESSION_DIR, "wifi-ready"))) throw Error("Open the app window to find nearby cars.");
+  const id = `${process.pid}-${Date.now()}-${++scanSequence}`;
+  const request = path.join(SESSION_DIR, "wifi-request.json");
+  fs.writeFileSync(request + ".tmp", JSON.stringify({ id }));
+  fs.renameSync(request + ".tmp", request);
+  const deadline = Date.now() + 15000;
+  while (Date.now() < deadline) {
+    let result;
+    try { result = JSON.parse(fs.readFileSync(path.join(SESSION_DIR, "wifi-result.json"), "utf8")); } catch {}
+    if (result?.id === id) {
+      if (result.error) { const error = Error(result.error); error.code = result.code || "scan"; throw error; }
+      return parseSsidList((result.cars || []).join("\n"));
+    }
+    await sleep(100);
+  }
+  throw Error("Wi-Fi discovery timed out. Retrying automatically.");
+}
+
 async function macCurrentCar() {
-  // SSID is redacted on macOS — we can tell we're ON the car (gateway) but not
-  // which one. Return the truthy sentinel when connected, null otherwise.
-  return (await macOnCarAP()) ? MAC_CURRENT_CAR : null;
+  if (!(await macOnCarAP())) return null;
+  try {
+    const result = JSON.parse(fs.readFileSync(path.join(SESSION_DIR, "wifi-result.json"), "utf8"));
+    if (matchCarSsid(result.current)) return result.current;
+  } catch {}
+  return MAC_CURRENT_CAR;
 }
 
 async function macJoinCar(ssid, carIp = CAR_IP_DEFAULT, opts = {}) {
@@ -249,10 +246,11 @@ export const linux = {
 };
 
 export const mac = {
-  SCAN_SUPPORTED: false, // CLI scanning is dead on macOS — see research
-  scanCars: async () => [], // live scan is redacted; discovery uses savedCars() instead
+  SCAN_SUPPORTED: true,
+  scanCars: macScanCars,
   savedCars: macSavedCars, // preferred (saved) car networks — real names, no scan
-  openWifiPicker: macOpenWifiPicker, // never-paired case: open Wi-Fi settings once
+  openWifiPicker: macOpenWifiPicker,
+  openDiscoverySettings: () => run("open", ["x-apple.systempreferences:com.apple.preference.security?Privacy_LocationServices"]),
   onCarAP: macOnCarAP,
   currentCar: macCurrentCar,
   joinCar: macJoinCar,
@@ -265,7 +263,7 @@ const unsupported = {
   openWifiPicker: async () => false, onCarAP: async () => false,
   currentCar: async () => null, joinCar: async () => ({ ok: false, reason: "unsupported OS" }),
 };
-const backend = { darwin: mac, linux, win32: windows }[PLATFORM] || unsupported;
+const backend = process.env.WIFI_BIN ? windows : { darwin: mac, linux, win32: windows }[PLATFORM] || unsupported;
 
 // The common T3 surface — dispatched to the live platform's backend.
 export const SCAN_SUPPORTED = backend.SCAN_SUPPORTED;
@@ -275,3 +273,5 @@ export const openWifiPicker = (...a) => backend.openWifiPicker(...a);
 export const onCarAP = (...a) => backend.onCarAP(...a);
 export const currentCar = (...a) => backend.currentCar(...a);
 export const joinCar = (...a) => backend.joinCar(...a);
+
+export const openDiscoverySettings = backend.openDiscoverySettings || null;

@@ -10,4 +10,6 @@
 <key>LSMinimumSystemVersion</key><string>MIN_OS</string>
 <key>NSHighResolutionCapable</key><true/>
 <key>NSLocalNetworkUsageDescription</key><string>Display camera video from your WLtoys car.</string>
+<key>NSLocationUsageDescription</key><string>macOS requires Location access to scan Wi-Fi networks and find your WLtoys car.</string>
+<key>NSLocationWhenInUseUsageDescription</key><string>macOS requires Location access to scan Wi-Fi networks and find your WLtoys car.</string>
 </dict></plist>
