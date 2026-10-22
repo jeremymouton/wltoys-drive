@@ -44,14 +44,19 @@ Development branch packages are also available as artifacts of the
 
 1. Turn the car on with its physical remote **off**, then wait for the camera's
    green light.
-2. Launch the app. Linux/Deck and Windows look for nearby car networks; macOS
-   offers previously joined cars. If Wi-Fi permission is unavailable or the car
-   is new, use your system Wi-Fi settings to join **WL FPV CAR …**. The password
-   is the **last eight digits** of the network name. If joining manually, join
-   before launching the app, or close and reopen it afterward.
+2. Launch the app. Its window opens immediately and scans for nearby cars.
+   One car connects automatically. If several are in range, choose one in the
+   app with a click, Up/Down and Enter, or your gamepad's D-pad and A button.
+   If no car is found yet, the app keeps searching; turn the car on and wait.
 3. Click the video window, then drive with WASD/arrows or your gamepad. Close
    the video window to stop and exit. **Space** sends neutral, including when
    a controller's throttle is held.
+
+macOS requires **Location access to scan nearby Wi-Fi networks**. The permission
+request explains that it is used to find your car; the app does not request
+coordinates. Recent Windows versions may also require Location access for
+Wi-Fi discovery. If access is denied, the app explains it and offers an
+**Open settings** button, then continues discovery when access is available.
 
 Joining the car's Wi-Fi normally disconnects that device from the internet.
 The app already contains everything it needs to drive offline.
