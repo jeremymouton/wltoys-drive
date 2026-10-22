@@ -37,11 +37,11 @@ static int focused(void) {
 static void keyboard(void) {
     const int keys[] = {'W','A','S','D',VK_UP,VK_DOWN,VK_LEFT,VK_RIGHT,VK_SPACE};
     const char *names[] = {"w","a","s","d","UP","DOWN","LEFT","RIGHT","SPACE"};
-    int oldH = 0, oldR = 0;
+    int oldH = 0, oldR = 0, oldUp = 0, oldDown = 0, oldEnter = 0, oldClick = 0;
     for (;;) {
         int active = focused(), any = 0;
         if (!active) {
-            puts("KEYS -"); oldH = oldR = 0;
+            puts("KEYS -"); oldH = oldR = oldUp = oldDown = oldEnter = oldClick = 0;
             fflush(stdout); Sleep(20); continue;
         }
         fputs("KEYS", stdout);
@@ -56,6 +56,19 @@ static void keyboard(void) {
         int r = (GetAsyncKeyState('R') & 0x8000) != 0;
         if (active && h && !oldH) puts("HUD");
         if (active && r && !oldR) puts("REC");
+        int up = (GetAsyncKeyState(VK_UP) & 0x8000) != 0;
+        int down = (GetAsyncKeyState(VK_DOWN) & 0x8000) != 0;
+        int enter = (GetAsyncKeyState(VK_RETURN) & 0x8000) != 0;
+        int click = (GetAsyncKeyState(VK_LBUTTON) & 0x8000) != 0;
+        if (up && !oldUp) puts("UI UP");
+        if (down && !oldDown) puts("UI DOWN");
+        if (enter && !oldEnter) puts("UI SELECT");
+        if (click && !oldClick) {
+            HWND window = GetForegroundWindow(); RECT bounds; POINT point;
+            if (GetClientRect(window, &bounds) && GetCursorPos(&point) && ScreenToClient(window, &point) && bounds.right > 0 && bounds.bottom > 0)
+                printf("UI CLICK %.1f %.1f\n", point.x * 1280.0 / bounds.right, point.y * 720.0 / bounds.bottom);
+        }
+        oldUp = up; oldDown = down; oldEnter = enter; oldClick = click;
         oldH = h; oldR = r;
         fflush(stdout); Sleep(20);
     }

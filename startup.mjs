@@ -1,0 +1,160 @@
+import net from "node:net";
+
+const pause = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+const clean = (value) => String(value).replace(/[{}\\\r\n]/g, " ").slice(0, 150);
+
+export class StartupScreen {
+  constructor({ player, ipc, draw, text, gamepad }) {
+    this.player = player;
+    this.ipc = ipc;
+    this.draw = draw;
+    this.text = text;
+    this.gamepad = gamepad;
+    this.pending = new Map();
+    this.sequence = 0;
+    this.cars = [];
+    this.index = 0;
+    this.first = 0;
+    this.closed = false;
+    player.once("exit", () => this.dispose());
+    this.timer = setInterval(() => {
+      const { y, a } = gamepad();
+      if (y < -0.5 && !(this.previousY < -0.5)) this.input("UP");
+      if (y > 0.5 && !(this.previousY > 0.5)) this.input("DOWN");
+      if (a && !this.previousA) this.input("SELECT");
+      this.previousY = y;
+      this.previousA = a;
+    }, 30);
+    this.status("Searching for cars", "Turn on your car. It will connect automatically.");
+  }
+
+  async ready() {
+    const deadline = Date.now() + 10000;
+    while (!this.closed && Date.now() < deadline) {
+      try {
+        this.socket = await new Promise((resolve, reject) => {
+          const socket = net.createConnection(this.ipc);
+          socket.once("connect", () => resolve(socket));
+          socket.once("error", reject);
+        });
+        break;
+      } catch { await pause(50); }
+    }
+    if (!this.socket || this.closed) throw Error("The video window could not open");
+    let buffer = "";
+    this.socket.on("data", (bytes) => {
+      buffer += bytes;
+      let end;
+      while ((end = buffer.indexOf("\n")) >= 0) {
+        const line = buffer.slice(0, end); buffer = buffer.slice(end + 1);
+        let response;
+        try { response = JSON.parse(line); } catch { continue; }
+        const pending = this.pending.get(response.request_id);
+        if (!pending) continue;
+        this.pending.delete(response.request_id);
+        clearTimeout(pending.timer);
+        if (response.error === "success") pending.resolve(response.data);
+        else pending.reject(Error(response.error));
+      }
+    });
+    this.socket.on("error", () => this.dispose());
+    this.socket.on("close", () => this.dispose());
+    while (!this.closed && Date.now() < deadline) {
+      try {
+        if (typeof await this.command(["get_property", "time-pos"]) === "number") return;
+      } catch {}
+      await pause(50);
+    }
+    throw Error("The video window did not become ready");
+  }
+
+  command(command) {
+    if (this.closed || !this.socket) return Promise.reject(Error("Window closed"));
+    const id = ++this.sequence;
+    return new Promise((resolve, reject) => {
+      const timer = setTimeout(() => { this.pending.delete(id); reject(Error("Player response timed out")); }, 5000);
+      this.pending.set(id, { resolve, reject, timer });
+      this.socket.write(JSON.stringify({ command, request_id: id }) + "\n");
+    });
+  }
+
+  status(title, detail = "", error = false) {
+    this.title = title;
+    this.detail = detail;
+    this.error = error;
+    this.cars = [];
+    this.render();
+  }
+
+  render() {
+    const t = this.text;
+    const rows = [t(96, 72, 4, 25, "WLtoys Drive"), t(640, 175, 5, 38, clean(this.title))];
+    if (this.detail) {
+      const words = clean(this.detail).split(" ");
+      let line = "", y = 225;
+      for (const word of words) {
+        if ((line + word).length > 70) { rows.push(t(640, y, 5, 21, line, this.error ? "4040E0" : "FFFFFF")); line = ""; y += 28; }
+        line += (line ? " " : "") + word;
+      }
+      if (line) rows.push(t(640, y, 5, 21, line, this.error ? "4040E0" : "FFFFFF"));
+    }
+    this.first = Math.max(0, Math.min(this.index - 5, this.cars.length - 7));
+    this.cars.slice(this.first, this.first + 7).forEach((ssid, row) => {
+      const index = this.first + row, y = 292 + row * 46;
+      if (index === this.index) rows.push(`{\\an7\\pos(330,${y - 22})\\bord2\\shad0\\1a&HFF&\\3c&HFFFFFF&\\p1}m 0 0 l 620 0 620 44 0 44`);
+      rows.push(t(360, y, 4, 26, ssid));
+    });
+    if (this.cars.length) rows.push(t(640, 650, 5, 20, "Click a car, or use Up / Down and Enter. Gamepad: D-pad and A."));
+    else rows.push(t(640, 650, 5, 20, "Close the window to exit."));
+    this.draw(rows.join("\n"));
+  }
+
+  choose(cars, preferred) {
+    if (this.closed) return Promise.resolve(null);
+    this.title = "Choose your car";
+    this.detail = "Several cars are nearby. Select the one you want to drive.";
+    this.error = false;
+    this.cars = cars;
+    this.index = Math.max(0, cars.indexOf(preferred));
+    this.render();
+    return new Promise((resolve) => { this.selection = resolve; });
+  }
+
+  input(value) {
+    if (!this.selection || !this.cars.length) return;
+    const [action, x, y] = value.split(" ");
+    if (action === "UP") this.index = (this.index - 1 + this.cars.length) % this.cars.length;
+    if (action === "DOWN") this.index = (this.index + 1) % this.cars.length;
+    if (action === "CLICK") {
+      const row = Math.floor((Number(y) - 270) / 46);
+      if (Number(x) < 330 || Number(x) > 950 || row < 0 || row >= 7 || this.first + row >= this.cars.length) return;
+      this.index = this.first + row;
+    }
+    if (action === "SELECT" || action === "CLICK") {
+      const resolve = this.selection; this.selection = null;
+      resolve(this.cars[this.index]);
+    } else this.render();
+  }
+
+  async play({ mode, rtsp, transport, fps = 25, lowLatency = true }) {
+    const options = { "untimed": "yes" };
+    if (mode === "udp") {
+      Object.assign(options, { "demuxer": "lavf", "demuxer-lavf-format": "hevc", "correct-pts": "no" });
+      if (lowLatency) Object.assign(options, { "vd-lavc-o": "flags=+low_delay", "demuxer-lavf-probesize": "32" });
+      try { await this.command(["set_property", "options/container-fps-override", String(fps)]); }
+      catch { await this.command(["set_property", "options/fps", String(fps)]); }
+    } else options["rtsp-transport"] = transport;
+    for (const [name, value] of Object.entries(options)) await this.command(["set_property", `options/${name}`, value]);
+    await this.command(["loadfile", mode === "udp" ? "-" : rtsp, "replace"]);
+  }
+
+  dispose() {
+    if (this.closed) return;
+    this.closed = true;
+    clearInterval(this.timer);
+    this.selection?.(null); this.selection = null;
+    for (const pending of this.pending.values()) { clearTimeout(pending.timer); pending.reject(Error("Window closed")); }
+    this.pending.clear();
+    this.socket?.destroy();
+  }
+}

@@ -6,8 +6,11 @@ import { fileURLToPath } from "node:url";
 export const APP_DIR = path.dirname(fileURLToPath(import.meta.url));
 export const BIN_DIR = path.join(APP_DIR, "bin");
 export const SESSION_DIR = fs.mkdtempSync(path.join(os.tmpdir(), "wltoys-"));
+const ipcDir = process.platform === "win32" ? null : fs.mkdtempSync("/tmp/wltoys-ipc-");
+export const PLAYER_IPC = ipcDir ? path.join(ipcDir, "player") : `\\\\.\\pipe\\wltoys-${path.basename(SESSION_DIR)}-${process.pid}`;
 process.once("exit", () => {
   try { fs.rmSync(SESSION_DIR, { recursive: true, force: true }); } catch {}
+  if (ipcDir) try { fs.rmSync(ipcDir, { recursive: true, force: true }); } catch {}
 });
 
 export const LOCAL_PLAYER = process.platform === "darwin"

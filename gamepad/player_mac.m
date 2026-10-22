@@ -61,8 +61,16 @@ static void heartbeat(void) {
     if (event.modifierFlags & (NSEventModifierFlagCommand | NSEventModifierFlagControl | NSEventModifierFlagOption)) return;
     NSString *name = keyName(event.keyCode);
     if (name) { [held addObject:name]; heartbeat(); }
+    if (event.keyCode == 126) line(@"UI UP");
+    else if (event.keyCode == 125) line(@"UI DOWN");
+    else if (!event.isARepeat && (event.keyCode == 36 || event.keyCode == 76)) line(@"UI SELECT");
     else if (!event.isARepeat && event.keyCode == 4) line(@"HUD");
     else if (!event.isARepeat && event.keyCode == 15) line(@"REC");
+}
+- (void)mouseDown:(NSEvent *)event {
+    NSPoint point = [self convertPoint:event.locationInWindow fromView:nil];
+    line([NSString stringWithFormat:@"UI CLICK %.1f %.1f", point.x * 1280 / self.bounds.size.width,
+        (self.bounds.size.height - point.y) * 720 / self.bounds.size.height]);
 }
 - (void)keyUp:(NSEvent *)event {
     NSString *name = keyName(event.keyCode);
@@ -111,7 +119,7 @@ static void events(void *ctx) {
                 fprintf(stderr, "[player/%s] %s", message->prefix, message->text);
             } else if (event->event_id == MPV_EVENT_END_FILE) {
                 mpv_event_end_file *end = event->data;
-                if (end->reason != MPV_END_FILE_REASON_REDIRECT) finish(end->error < 0 ? 1 : 0);
+                if (end->reason != MPV_END_FILE_REASON_REDIRECT && end->reason != MPV_END_FILE_REASON_STOP) finish(end->error < 0 ? 1 : 0);
             } else if (event->event_id == MPV_EVENT_SHUTDOWN) finish(0);
         }
     });

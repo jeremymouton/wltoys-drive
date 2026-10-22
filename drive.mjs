@@ -24,11 +24,12 @@ import readline from "node:readline";
 import { existsSync } from "node:fs";
 import { spawn, spawnSync } from "node:child_process";
 import path from "node:path";
-import { APP_DIR, SESSION_DIR, LOCAL_PLAYER, findTool, luaString } from "./runtime.mjs";
+import { APP_DIR, SESSION_DIR, PLAYER_IPC, LOCAL_PLAYER, findTool, luaString } from "./runtime.mjs";
 // WiFi auto-connect (W1) + reconnect (W4): pure core + platform backends live in
 // ./wifi/ (zero npm deps). drive.mjs stays the sole car-facing script; wifi/ is
 // spawn-only glue over nmcli (Linux/Deck) / networksetup+gateway (macOS).
 import * as wifi from "./wifi/connect.mjs";
+import { StartupScreen } from "./startup.mjs";
 import { matchCarSsid } from "./wifi/core.mjs";
 
 const CAR_IP = process.env.CAR_IP || "172.16.11.1";
@@ -318,6 +319,8 @@ let kbStream = null;
 // Parse one held-key heartbeat line into kbState, recomputed fresh each call.
 // Module-level so --selftest can drive it directly with synthetic FIFO lines.
 function handleKeyLine(ln) {
+  if (ln.startsWith("UI ")) { startupScreen?.input(ln.slice(3)); return; }
+  if (picking && (ln === "HUD" || ln === "REC")) return;
   if (ln === "HUD") { toggleHud(); return; } // 'h' key: one-shot HUD on/off (down-edge from the Lua)
   if (ln === "REC") { toggleRecord(); return; } // 'r' key: same, for recording — the gamepad's Y
   // button is unreachable from a keyboard, so keyboard-only driving had no way to record
@@ -393,6 +396,9 @@ if keyfifo then
     mp.add_forced_key_binding(k, "wlk_" .. k, function(e)
       if e.event == "up" then held[k] = nil
       elseif e.event ~= "press" then held[k] = true end
+      if (e.event == "down" or e.event == "repeat") and (k == "UP" or k == "DOWN") then
+        keyfifo:write("UI " .. k .. "\\n"); keyfifo:flush()
+      end
     end, {complex = true})
   end
   for _, k in ipairs({"w", "a", "s", "d", "UP", "DOWN", "LEFT", "RIGHT", "SPACE"}) do kbind(k) end
@@ -402,6 +408,16 @@ if keyfifo then
   mp.add_forced_key_binding("r", "wlk_rec", function(e) -- 'r' one-shot: toggle recording
     if e.event == "down" then keyfifo:write("REC\\n"); keyfifo:flush() end
   end, {complex = true})
+  mp.add_forced_key_binding("ENTER", "wlk_choose", function()
+    keyfifo:write("UI SELECT\\n"); keyfifo:flush()
+  end)
+  mp.add_forced_key_binding("MBTN_LEFT", "wlk_click", function()
+    local x, y = mp.get_mouse_pos()
+    local w, h = mp.get_osd_size()
+    if w > 0 and h > 0 then
+      keyfifo:write(string.format("UI CLICK %.1f %.1f\\n", x * 1280 / w, y * 720 / h)); keyfifo:flush()
+    end
+  end)
   mp.add_periodic_timer(0.05, function()
     local ks = {}
     for k, _ in pairs(held) do ks[#ks + 1] = k end
@@ -567,7 +583,8 @@ function buildPlayer(src) {
       // mpv's own advice for this stream ("no timestamps ... you can correct this with"):
       "--no-correct-pts", `${fpsFlag}=${Number(process.env.VIDEO_FPS ?? 25)}`,
     ] : [];
-    const tail = src.demo ? ["--no-untimed", "--loop=inf", "av://lavfi:testsrc2=size=1280x720:rate=30"]
+    const tail = src.startup ? ["--no-untimed", `--input-ipc-server=${PLAYER_IPC}`, "av://lavfi:color=c=black:size=1280x720:rate=10"]
+      : src.demo ? ["--no-untimed", "--loop=inf", "av://lavfi:testsrc2=size=1280x720:rate=30"]
       : src.pipe ? [...pipeTrims, "--demuxer=lavf", "--demuxer-lavf-format=hevc", "-"]
       : [`--rtsp-transport=${RTSP_TRANSPORT}`, RTSP];
     return { cmd: pre[0], args: [...pre.slice(1), ...mpvCommon, ...hudArgs, ...tail] };
@@ -601,11 +618,12 @@ function attachPlayerInput(player, command) {
   player.once("exit", () => handleKeyLine("KEYS -"));
 }
 
-function startVideo() {
-  return VIDEO_MODE === "udp" ? startUdpVideo() : startRtspVideo();
+function startVideo(player) {
+  return VIDEO_MODE === "udp" ? startUdpVideo(player) : startRtspVideo(player);
 }
 
-function startRtspVideo() {
+function startRtspVideo(existingPlayer) {
+  if (existingPlayer) return existingPlayer;
   const p = buildPlayer({ rtsp: true });
   if (!p) { noPlayer(); return null; }
   console.error(`[video] rtsp ${RTSP_TRANSPORT}: ${p.cmd} ${p.args.join(" ")}`);
@@ -728,12 +746,12 @@ function makeReassembler(frameMax = 1 << 20) {
 
 // The app's native path: send START, receive raw-HEVC fragments on UDP, reassemble
 // frames, pipe complete ones to the player. Lowest latency (no RTSP/jitter buffer).
-function startUdpVideo() {
-  const p = buildPlayer({ pipe: true });
-  if (!p) { noPlayer(); return null; }
-  console.error(`[video] udp raw-hevc :${CAM_VID_PORT}: ${p.cmd} ${p.args.join(" ")}`);
-  const player = spawn(p.cmd, p.args, { stdio: ["pipe", p.cmd === LOCAL_PLAYER ? "pipe" : "inherit", "inherit"] });
-  attachPlayerInput(player, p.cmd);
+function startUdpVideo(existingPlayer) {
+  const p = existingPlayer ? null : buildPlayer({ pipe: true });
+  if (!existingPlayer && !p) { noPlayer(); return null; }
+  if (p) console.error(`[video] udp raw-hevc :${CAM_VID_PORT}: ${p.cmd} ${p.args.join(" ")}`);
+  const player = existingPlayer || spawn(p.cmd, p.args, { stdio: ["pipe", p.cmd === LOCAL_PLAYER ? "pipe" : "inherit", "inherit"] });
+  if (p) attachPlayerInput(player, p.cmd);
   player.stdin.on("error", () => {}); // ignore EPIPE when the window closes
 
   const cmdSock = dgram.createSocket("udp4");
@@ -832,60 +850,30 @@ function startUdpVideo() {
   return player;
 }
 
-// Game Mode car picker. On the Deck there is no terminal and no desktop dialog —
-// Game Mode is a gamescope session — so the only place a choice can happen is the
-// screen the user is already looking at, driven by the gamepad already in their
-// hands. Draws through the SAME ASS overlay the HUD uses, over a test pattern,
-// because the car isn't joined yet so there is no video to draw on.
-// Returns the chosen SSID, or null if mpv is unavailable (caller falls back).
-let picking = false; // while true the D-pad drives this list, not the HUD toggle
-async function pickCarOnOsd(cars, opts = {}) {
-  if (!Array.isArray(cars) || cars.length === 0) return null;
-  const timeoutMs = Number(opts.timeoutMs ?? 45000);
-  const p = buildPlayer({ demo: true });
-  if (!p) return null; // no mpv -> no overlay surface; caller degrades
-  const player = spawn(p.cmd, p.args, { stdio: ["ignore", p.cmd === LOCAL_PLAYER ? "pipe" : "inherit", "inherit"] });
+let picking = false;
+let startupScreen = null;
+let awaitingNeutral = false;
+
+async function openStartupScreen() {
+  const p = buildPlayer({ startup: true });
+  if (!p) throw Error("The bundled video player is missing");
+  const player = spawn(p.cmd, p.args, { stdio: ["pipe", p.cmd === LOCAL_PLAYER ? "pipe" : "inherit", "inherit"] });
+  player.stdin.on("error", () => {});
   attachPlayerInput(player, p.cmd);
-  picking = true;
-  let idx = 0;
-
-  const draw = () => {
-    const ev = [
-      txt(640, 150, 5, 44, "SELECT YOUR CAR"),
-      txt(640, 205, 5, 22, "D-pad up / down     A = drive"),
-    ];
-    cars.forEach((s, i) =>
-      ev.push(txt(640, 280 + i * 46, 5, 32, `${i === idx ? "▶  " : "    "}${s}`, i === idx ? WHITE : RED)));
-    writeHudFile(ev.join("\n"));
-  };
-
-  return await new Promise((resolve) => {
-    let tick = null, done = false, prevY = 0, prevA = 0;
-    const t0 = Date.now();
-    const finish = (val) => {
-      if (done) return;
-      done = true;
-      picking = false;
-      if (tick) clearInterval(tick);
-      try { player.kill(); } catch { /* already gone */ }
-      writeHudFile(""); // clear the overlay before the real video takes over
-      resolve(val);
-    };
-    tick = setInterval(() => {
-      const y = axes[HUD_AXIS] || 0;
-      const a = buttons[ACCEL_BUTTON] ? 1 : 0;
-      if (y < -0.5 && prevY >= -0.5) { idx = (idx - 1 + cars.length) % cars.length; draw(); }
-      if (y > 0.5 && prevY <= 0.5) { idx = (idx + 1) % cars.length; draw(); }
-      prevY = y;
-      if (a && !prevA) { prevA = a; return finish(cars[idx]); }
-      prevA = a;
-      // Never hang a headless/unattended boot: fall back to the highlighted car.
-      if (Date.now() - t0 > timeoutMs) finish(cars[idx]);
-    }, 30);
-    player.on("error", (e) => { console.error(`[video] ${e.message}`); finish(null); });
-    player.on("exit", () => finish(cars[idx])); // user closed it -> take the highlight
-    draw();
+  const screen = new StartupScreen({
+    player, ipc: PLAYER_IPC, draw: writeHudFile, text: txt,
+    gamepad: () => ({ y: axes[HUD_AXIS] || 0, a: buttons[ACCEL_BUTTON] || 0 }),
   });
+  startupScreen = screen; picking = true;
+  player.on("error", (error) => { console.error(`[video] ${error.message}`); stopKeyboard(); process.exit(1); });
+  player.once("exit", (code) => { if (startupScreen === screen) { stopKeyboard(); process.exit(code || 0); } });
+  await screen.ready();
+  return screen;
+}
+
+async function pickCarOnOsd(cars) {
+  const screen = startupScreen || await openStartupScreen();
+  return screen.choose(cars, loadLastCar());
 }
 
 // Preview the OSD over a test pattern with animated inputs — no car or gamepad
@@ -944,7 +932,7 @@ function currentPacket() {
   const kbActive = kb.fwd || kb.rev || kb.steer !== 0; // any live keyboard input this tick
   // Gamepad gone AND no live keyboard -> stop. Keyboard is its OWN liveness source,
   // so keyboard-only driving (no controller at all) still produces real packets.
-  if (!connected && !kbActive) { hud.steer = 0; hud.throttle = 0; return neutral(); }
+  if (!connected && !kbActive) { awaitingNeutral = false; hud.steer = 0; hud.throttle = 0; return neutral(); }
   // steer = gamepad axis + keyboard, additively clamped, then the shared deadzone/expo.
   const steerNorm = expo(deadzone(Math.max(-1, Math.min(1, (connected ? axes[STEER_AXIS] || 0 : 0) + kb.steer))), STEER_EXPO);
 
@@ -960,6 +948,11 @@ function currentPacket() {
   }
   net = expo(net, THROTTLE_EXPO);
   if (Math.abs(net) < 0.03) net = 0;
+  if (awaitingNeutral) {
+    if (!net && !steerNorm) awaitingNeutral = false;
+    hud.steer = 0; hud.throttle = 0;
+    return neutral();
+  }
   hud.steer = steerNorm; // feed the HUD
   hud.throttle = net;
   return buildPacket(axisToByte(steerNorm), axisToByte(net), NEUTRAL + trim);
@@ -1840,7 +1833,7 @@ if (process.argv.includes("--list")) {
     : ["WL FPV CAR 11111111", "WL FPV CAR 22222222", "WL FPV CAR 33333333"];
   openGamepad(false);
   pickCarOnOsd(list, { timeoutMs: Number(process.env.PICK_TIMEOUT_MS ?? 45000) })
-    .then((s) => { console.log(`picked: ${s}`); process.exit(0); })
+    .then((s) => { startupScreen?.player.kill(); console.log(`picked: ${s}`); process.exit(0); })
     .catch((e) => { console.error(`pick failed: ${e && e.message}`); process.exit(1); });
 } else if (process.argv.includes("--hud-demo")) {
   hudDemo();
@@ -1849,16 +1842,32 @@ if (process.argv.includes("--list")) {
 }
 
 async function main() {
-  // Pre-flight: bring the car network up BEFORE video/control start (non-fatal —
-  // an already-joined net or CAR_IP still works if this can't connect).
-  // Gamepad FIRST: the Game Mode car picker is driven by it, and connectCar() may
-  // need to show that picker before any network exists.
   openGamepad(false);
-  await connectCar();
-  wifiPowerSaveOff();
   openKeyboardHelper();
-  const video = startVideo();
+  let screen = null, driving = false;
+  const cancelStartup = () => {
+    if (driving) return;
+    startupScreen?.player.kill(); stopKeyboard(); process.exit(0);
+  };
+  process.on("SIGINT", cancelStartup); process.on("SIGTERM", cancelStartup);
+  if (!NO_AUTOCONNECT) {
+    screen = await openStartupScreen();
+    screen.player.once("exit", (code) => { if (!driving) { stopKeyboard(); process.exit(code || 0); } });
+  }
+  await connectCar(screen ? { pickOsd: (cars) => screen.choose(cars, loadLastCar()), log: (message) => {
+    console.error(message);
+    screen.status("Connecting to your car", message.replace(/^\[wifi\] /, ""));
+  } } : {});
+  wifiPowerSaveOff();
+  if (screen) {
+    await screen.play({ mode: VIDEO_MODE, rtsp: RTSP, transport: RTSP_TRANSPORT,
+      fps: Number(process.env.VIDEO_FPS ?? 25), lowLatency: process.env.VIDEO_LOWLAT !== "0" });
+    screen.dispose(); startupScreen = null; picking = false; awaitingNeutral = true;
+  }
+  const video = startVideo(screen?.player);
   if (!video) { stopKeyboard(); process.exit(1); }
+  driving = true;
+  process.off("SIGINT", cancelStartup); process.off("SIGTERM", cancelStartup);
   controlLive = true; // arm send-on-change (input handlers were no-ops until now)
   const timer = setInterval(() => tx(currentPacket()), 1000 / SEND_HZ); // heartbeat floor
 

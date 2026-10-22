@@ -34,7 +34,7 @@ async function download(url, file, digest) {
 }
 const copy = (a, b) => { fs.mkdirSync(path.dirname(b), { recursive: true }); fs.copyFileSync(a, b); };
 const executable = (file) => fs.chmodSync(file, 0o755);
-for (const file of ["drive.mjs", "runtime.mjs", "README.md"]) copy(path.join(root, file), path.join(app, file));
+for (const file of ["drive.mjs", "runtime.mjs", "startup.mjs", "README.md"]) copy(path.join(root, file), path.join(app, file));
 fs.mkdirSync(path.join(app, "wifi"));
 for (const file of fs.readdirSync(path.join(root, "wifi")).filter((f) => f.endsWith(".mjs"))) copy(path.join(root, "wifi", file), path.join(app, "wifi", file));
 const slug = `${process.platform === "win32" ? "win" : process.platform}-${process.arch}`;
