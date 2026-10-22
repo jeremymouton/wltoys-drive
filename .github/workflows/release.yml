@@ -87,6 +87,27 @@ jobs:
           RELEASE_VERSION: ${{ github.ref_type == 'tag' && github.ref_name || '0.0.0-dev' }}
           RELEASE_TARGET: ${{ matrix.target }}
         run: node packaging/build.mjs
+      - name: Prepare Windows ARM64 interactive desktop
+        if: runner.os == 'Windows' && matrix.arch == 'arm64'
+        shell: powershell
+        run: |
+          # https://github.com/actions/runner-images/issues/14069
+          $policy = 'HKLM:\SOFTWARE\Policies\Microsoft\Windows\OOBE'
+          New-Item -Path $policy -Force | Out-Null
+          Set-ItemProperty -Path $policy -Name DisablePrivacyExperience -Type DWord -Value 1
+          $engagement = 'HKCU:\Software\Microsoft\Windows\CurrentVersion\UserProfileEngagement'
+          New-Item -Path $engagement -Force | Out-Null
+          Set-ItemProperty -Path $engagement -Name ScoobeSystemSettingEnabled -Type DWord -Value 0
+          Get-Process -Name UserOOBEBroker,WWAHost -ErrorAction SilentlyContinue | Stop-Process -Force
+          Start-Sleep -Seconds 2
+          Add-Type -Namespace WLtoysCI -Name Desktop -MemberDefinition @'
+          [DllImport("user32.dll")] public static extern bool ShowWindowAsync(IntPtr window, int command);
+          '@
+          Get-Process | Where-Object MainWindowHandle -ne 0 | ForEach-Object {
+            Write-Host "Minimizing $($_.ProcessName): $($_.MainWindowTitle)"
+            [void][WLtoysCI.Desktop]::ShowWindowAsync($_.MainWindowHandle, 6)
+          }
+          (New-Object -ComObject WScript.Shell).SendKeys('{ESC}')
       - name: Verify extracted application
         timeout-minutes: 3
         shell: bash
