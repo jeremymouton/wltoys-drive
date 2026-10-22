@@ -1,6 +1,6 @@
 # wltoys-drive
 
-![Fully visible app window and Steam Deck OLED side by side, with a smaller WLtoys 6401 camera car below.](assets/readme/overview.jpg)
+![App window and Steam Deck OLED side by side, with the steering-wheel controller logo and a smaller WLtoys 6401 camera car below.](assets/readme/overview.jpg)
 
 *Product photos with the app's HUD over an illustrative FPV scene.
 [Image sources](assets/readme/sources.json).*

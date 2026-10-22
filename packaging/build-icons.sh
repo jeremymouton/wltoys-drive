@@ -6,7 +6,25 @@ ICONS="$ROOT/assets/icons"
 WORK=$(mktemp -d)
 trap 'rm -rf "$WORK"' EXIT
 mkdir "$WORK/wltoys.iconset"
-sips -z 1024 1024 "$ICONS/source.png" --out "$ICONS/wltoys-drive.png" >/dev/null
+swift - "$ICONS/source.png" "$ICONS/wltoys-drive.png" <<'SWIFT'
+import AppKit
+let image = NSImage(contentsOfFile: CommandLine.arguments[1])!
+let edge = 1024
+let bitmap = NSBitmapImageRep(bitmapDataPlanes: nil, pixelsWide: edge, pixelsHigh: edge,
+    bitsPerSample: 8, samplesPerPixel: 4, hasAlpha: true, isPlanar: false,
+    colorSpaceName: .deviceRGB, bytesPerRow: edge * 4, bitsPerPixel: 32)!
+let context = NSGraphicsContext(bitmapImageRep: bitmap)!
+NSGraphicsContext.saveGraphicsState()
+NSGraphicsContext.current = context
+context.cgContext.clear(CGRect(x: 0, y: 0, width: edge, height: edge))
+let scale = CGFloat(edge) / max(image.size.width, image.size.height)
+let width = image.size.width * scale, height = image.size.height * scale
+image.draw(in: NSRect(x: (CGFloat(edge) - width) / 2, y: (CGFloat(edge) - height) / 2,
+    width: width, height: height), from: .zero, operation: .sourceOver, fraction: 1,
+    respectFlipped: false, hints: [.interpolation: NSImageInterpolation.high])
+NSGraphicsContext.restoreGraphicsState()
+try bitmap.representation(using: .png, properties: [:])!.write(to: URL(fileURLWithPath: CommandLine.arguments[2]))
+SWIFT
 for SIZE in 16 32 128 256 512; do
   sips -z "$SIZE" "$SIZE" "$ICONS/wltoys-drive.png" --out "$WORK/wltoys.iconset/icon_${SIZE}x${SIZE}.png" >/dev/null
   DOUBLE=$((SIZE * 2))

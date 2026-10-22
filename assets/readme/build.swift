@@ -4,6 +4,7 @@ let base = URL(fileURLWithPath: CommandLine.arguments[0]).deletingLastPathCompon
 let hud = NSImage(contentsOf: base.appendingPathComponent("source/hud-preview.jpg"))!
 let car = NSImage(contentsOf: base.appendingPathComponent("source/wltoys-6401.jpg"))!
 let deck = NSImage(contentsOf: base.appendingPathComponent("source/steam-deck-oled.png"))!
+let logo = NSImage(contentsOf: base.deletingLastPathComponent().appendingPathComponent("icons/wltoys-drive.png"))!
 
 func photo(_ image: NSImage, _ x: CGFloat, _ y: CGFloat, _ w: CGFloat, _ h: CGFloat) {
     image.draw(in: NSRect(x: x, y: y, width: w, height: h), from: .zero,
@@ -25,6 +26,7 @@ func app(_ x: CGFloat, _ y: CGFloat, _ w: CGFloat) {
         NSBezierPath(ovalIn: NSRect(x: x + 16 + CGFloat(i) * 20,
                                   y: y + 14, width: 10, height: 10)).fill()
     }
+    photo(logo, x + w / 2 - 67, y + 6, 26, 26)
     ("wltoys-drive" as NSString).draw(at: NSPoint(x: x + w / 2 - 35, y: y + 11),
         withAttributes: [.font: NSFont.systemFont(ofSize: 13),
                          .foregroundColor: NSColor(calibratedWhite: 0.42, alpha: 1)])
@@ -65,6 +67,7 @@ func render(_ filename: String, _ width: Int, _ height: Int, _ draw: () -> Void)
 render("overview.jpg", 1800, 900) {
     app(70, 65, 740)
     handheld(840, 170, 930)
+    photo(logo, 200, 550, 320, 320)
     let ratio = car.size.width / car.size.height
     let w: CGFloat = ratio > 1 ? 370 : 340 * ratio
     let h = w / ratio
