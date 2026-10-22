@@ -7,17 +7,20 @@ import { fileURLToPath } from "node:url";
 export async function checkWindowsInput(app, home, env) {
   const here = path.dirname(fileURLToPath(import.meta.url));
   const dir = path.join(home, "native focus check"); fs.mkdirSync(dir);
-  const fixture = path.join(dir, "mpv.exe");
+  const bin = path.join(dir, "bin"); fs.mkdirSync(bin);
+  const fixture = path.join(bin, "mpv.exe");
   const build = spawnSync("gcc", [path.join(here, "windows-input-fixture.c"), "-O2", "-o", fixture, "-luser32"], { encoding: "utf8" });
   if (build.error || build.status) throw Error(build.error?.message || build.stderr);
-  const helper = spawn(path.join(app, "bin/input-helper.exe"), ["--keyboard"], { env });
+  fs.copyFileSync(path.join(app, "bin/input-helper.exe"), path.join(bin, "input-helper.exe"));
+  fs.copyFileSync(path.join(app, "wltoys-drive.ico"), path.join(dir, "wltoys-drive.ico"));
+  const helper = spawn(path.join(bin, "input-helper.exe"), ["--keyboard"], { env });
   let keys = "", errors = "";
   helper.stdout.on("data", (b) => keys += b); helper.stderr.on("data", (b) => errors += b);
   const player = spawn(fixture, [], { env });
   let message = ""; player.stdout.on("data", (b) => message += b);
   const timeout = setTimeout(() => { player.kill(); helper.kill(); }, 10000);
   try {
-    const [code] = await once(player, "exit");
+    const [code] = await once(player, "close");
     if (code !== 0) throw Error(`Native keyboard window check failed: ${message} ${errors}`);
     const lines = keys.trim().split(/\r?\n/);
     const combined = lines.findIndex((s) => s === "KEYS w d");
@@ -25,6 +28,7 @@ export async function checkWindowsInput(app, home, env) {
     const forward = lines.findIndex((s, i) => i > released && s === "KEYS w");
     if (combined < 0 || released <= combined || forward <= released || !lines.slice(-5).every((s) => s === "KEYS -")) throw Error(`Native keyboard combine/release/focus check failed: ${keys} ${errors}`);
     if (!lines.includes("UI DOWN") || !lines.includes("UI SELECT") || !lines.some((s) => s.startsWith("UI CLICK "))) throw Error(`Native picker input failed: ${keys}`);
-    console.log("PASS Windows native keyboard: combined keys, picker navigation/click, release and focus-loss neutral");
+    if (!message.includes("PASS window icons")) throw Error(`Native window icon missing: ${message}`);
+    console.log("PASS Windows native keyboard: combined keys, picker navigation/click, release, focus-loss neutral and window icons");
   } finally { clearTimeout(timeout); helper.kill(); player.kill(); }
 }

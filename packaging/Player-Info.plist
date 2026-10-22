@@ -4,6 +4,8 @@
 <key>CFBundleExecutable</key><string>wltoys-player</string>
 <key>CFBundleIdentifier</key><string>com.jeremymouton.wltoys-drive.player</string>
 <key>CFBundleName</key><string>WLtoys Drive</string>
+<key>CFBundleDisplayName</key><string>WLtoys Drive</string>
+<key>CFBundleIconFile</key><string>wltoys-drive.icns</string>
 <key>CFBundlePackageType</key><string>APPL</string>
 <key>CFBundleShortVersionString</key><string>1.0</string>
 <key>CFBundleVersion</key><string>1</string>

@@ -161,15 +161,14 @@ The driver joins the car's WiFi on launch and rejoins it if the link drops.
 - **Steam Deck / Linux** scans for `WL FPV CAR …` networks and connects. One match
   joins directly; multiple show a picker (on screen in Game Mode);
   an existing car connection is reused.
-- **Windows** uses the native WLAN API to scan/join and checks the car gateway
-  when Windows hides the SSID. If Location/Wi-Fi permissions prevent discovery,
-  it opens Windows Wi-Fi settings for manual joining.
-- **macOS** cannot scan from the command line, so it discovers cars from your saved
-  (preferred) networks and shows a native dialog to connect — one match asks you to
-  confirm, several let you choose. A never-joined car opens Wi-Fi settings once so you
-  can pick it. `CAR_SSID` still joins a specific car directly. Car presence is detected
-  by its gateway (`172.16.11.1`); because macOS hides the joined network name, set
-  `CAR_SSID` if you want rejoin-on-drop after picking a car in Wi-Fi settings.
+- **Windows** uses the native WLAN API for a fresh scan and automatic joining.
+  If Windows requires Location access, the app explains that it is needed to scan
+  Wi-Fi networks and offers a button to open the permission settings.
+- **macOS** scans nearby Wi-Fi networks through its native app window. Allow
+  Location access when prompted so it can find cars, including never-paired cars.
+  The app requests network names, not coordinates.
+- All three platforms join one discovered car automatically and show an in-app
+  picker for several cars. With none nearby, the window stays open and retries.
 - On a drop, the OSD shows `RECONNECTING…`, the car is held at neutral, and the
   driver rejoins with backoff. A brief video stall does not trigger a rejoin. After
   repeated failures it stops and holds neutral.
@@ -193,7 +192,7 @@ Set via Steam Launch Options (`VAR=value %command%`) or inline (`VAR=value ./run
 | Variable | Default | Description |
 |---|---|---|
 | `CAR_IP` | `172.16.11.1` | Car address; also the expected gateway for auto-connect |
-| `CAR_SSID` | auto | Car WiFi name to join directly; optional override (Linux scans, macOS discovers saved cars otherwise) |
+| `CAR_SSID` | auto | Car WiFi name to join directly; optional override for nearby-car discovery |
 | `NO_AUTOCONNECT` | off | `1` disables auto-join and reconnect |
 | `VIDEO_MODE` | `udp` | `udp` (low-latency) or `rtsp` (fallback) |
 | `FULLSCREEN` | Linux on / Mac+Windows off | `1` fullscreen, `0` windowed (Mac defaults windowed) |

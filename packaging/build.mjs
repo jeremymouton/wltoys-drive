@@ -34,6 +34,7 @@ async function download(url, file, digest) {
 }
 const copy = (a, b) => { fs.mkdirSync(path.dirname(b), { recursive: true }); fs.copyFileSync(a, b); };
 const executable = (file) => fs.chmodSync(file, 0o755);
+copy(path.join(root, "assets/icons/wltoys-drive.png"), path.join(app, "wltoys-drive.png"));
 for (const file of ["drive.mjs", "runtime.mjs", "startup.mjs", "README.md"]) copy(path.join(root, file), path.join(app, file));
 fs.mkdirSync(path.join(app, "wifi"));
 for (const file of fs.readdirSync(path.join(root, "wifi")).filter((f) => f.endsWith(".mjs"))) copy(path.join(root, "wifi", file), path.join(app, "wifi", file));
@@ -101,6 +102,9 @@ if (process.platform === "darwin") {
   const mpv = run("/usr/bin/which", ["mpv"]).trim(); stage(mpv, path.join(bin, "mpv"));
   const playerBundle = path.join(app, "Player.app");
   fs.mkdirSync(path.join(playerBundle, "Contents/MacOS"), { recursive: true });
+  for (const resources of [app, path.join(playerBundle, "Contents/Resources")]) {
+    copy(path.join(root, "assets/icons/wltoys-drive.icns"), path.join(resources, "wltoys-drive.icns"));
+  }
   stage(path.join(root, "gamepad/player_mac"), path.join(playerBundle, "Contents/MacOS/wltoys-player"));
   console.log(`Bundled mpv and ${queued.size - 1} libraries; collecting dependency metadata`);
   const formulaData = JSON.parse(run("brew", ["info", "--json=v2", ...formulas])).formulae;
@@ -190,7 +194,10 @@ if (process.platform === "darwin") {
   collectNotices(expanded, "mpv-windows");
   manifest.dependencies.push(deps.windowsMpv);
   run("powershell.exe", ["-NoProfile", "-ExecutionPolicy", "Bypass", "-File", path.join(root, "gamepad/build-windows.ps1"), "-Output", path.join(bin, "input-helper.exe")]);
-  run("gcc", ["-O2", "-municode", "-mwindows", path.join(root, "packaging/windows-launcher.c"), "-o", path.join(top, "WLtoys Drive.exe"), "-luser32"]);
+  copy(path.join(root, "assets/icons/wltoys-drive.ico"), path.join(app, "wltoys-drive.ico"));
+  const iconResource = path.join(work, "icon.o");
+  run("windres", ["-I", path.join(root, "assets/icons"), path.join(root, "packaging/windows-icon.rc"), "-o", iconResource]);
+  run("gcc", ["-O2", "-municode", "-mwindows", path.join(root, "packaging/windows-launcher.c"), iconResource, "-o", path.join(top, "WLtoys Drive.exe"), "-luser32"]);
 }
 fs.writeFileSync(path.join(app, "build.json"), JSON.stringify(manifest, null, 2) + "\n");
 fs.writeFileSync(path.join(licenses, "SOURCES.txt"), `Node: https://nodejs.org/dist/v${deps.node}/node-v${deps.node}.tar.gz\nmpv: https://github.com/mpv-player/mpv\nWindows player build recipes: ${deps.windowsMpv.source}\nExact binary package versions, source URLs and build metadata are in ../build.json.\nFor Linux sources: enable matching Ubuntu 22.04 deb-src entries and run apt-get source PACKAGE=SOURCE_VERSION from that manifest.\nFor macOS sources: source archives, checksums and formula build metadata are recorded per dependency in that manifest.\n`);

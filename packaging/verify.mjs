@@ -15,6 +15,7 @@ const run = (cmd, args, options = {}) => {
   if (r.error || r.status !== 0) throw Error(`${cmd} (exit ${r.status}, signal ${r.signal}): ${r.error?.message || r.stderr || r.stdout}`);
   return r.stdout;
 };
+let failure;
 try {
   run(process.platform === "darwin" ? "ditto" : process.platform === "win32" ? path.join(process.env.SystemRoot, "System32/tar.exe") : "tar", process.platform === "darwin" ? ["-x", "-k", archive, temp] : ["-xf", archive, "-C", temp]);
   console.log("Extracted package");
@@ -22,7 +23,7 @@ try {
   const app = process.platform === "darwin" ? path.join(top, "Contents/Resources") : top;
   const manifest = JSON.parse(fs.readFileSync(path.join(app, "build.json")));
   if (!manifest.dependencies.length) throw Error("No bundled dependency provenance");
-  for (const entry of ["drive.mjs", "runtime.mjs", "wifi/connect.mjs", "wifi/windows.mjs", "licenses/Node-LICENSE", "licenses/mpv-GPL", "licenses/SOURCES.txt"]) {
+  for (const entry of ["drive.mjs", "runtime.mjs", "wifi/connect.mjs", "wifi/windows.mjs", "wltoys-drive.png", "licenses/Node-LICENSE", "licenses/mpv-GPL", "licenses/SOURCES.txt"]) {
     if (!fs.statSync(path.join(app, entry)).isFile()) throw Error(`Package missing ${entry}`);
   }
   const node = path.join(app, "bin", process.platform === "win32" ? "node.exe" : "node");
@@ -31,6 +32,10 @@ try {
   const env = { ...process.env, HOME: home, USERPROFILE: home, TMPDIR: home, TMP: home, TEMP: home, NO_AUTOCONNECT: "1", PATH: process.platform === "win32" ? `${process.env.SystemRoot}\\System32;${process.env.SystemRoot}` : "/usr/bin:/bin:/usr/sbin:/sbin" };
   if (process.platform === "darwin") {
     run("codesign", ["--verify", "--deep", "--strict", top]);
+    for (const bundle of [top, path.join(app, "Player.app")]) {
+      const icon = run("/usr/libexec/PlistBuddy", ["-c", "Print :CFBundleIconFile", path.join(bundle, "Contents/Info.plist")]).trim();
+      if (!fs.statSync(path.join(bundle, "Contents/Resources", icon)).isFile()) throw Error("Mac app icon missing");
+    }
     if (fs.existsSync(path.join(app, "keyboard-helper")) || manifest.macKeyboardInput !== "window-local") throw Error("Mac global keyboard helper must not ship");
     if (!fs.existsSync(path.join(app, "Player.app/Contents/MacOS/wltoys-player"))) throw Error("Native Mac player missing");
     const keyboard = run(path.join(app, "Player.app/Contents/MacOS/wltoys-player"), ["--input-selftest"], { env });
@@ -48,7 +53,12 @@ try {
   if (checks.includes("FAIL") || !checks.includes("checksum")) throw Error("Packaged self-test failed");
   if (process.platform === "linux") {
     run(node, [path.join(app, "desktop-shortcut.mjs")], { env, cwd: home });
-    if (!fs.readFileSync(path.join(home, ".local/share/applications/wltoys-drive.desktop"), "utf8").includes("Name=WLtoys Drive")) throw Error("Desktop shortcut missing");
+    const desktop = fs.readFileSync(path.join(home, ".local/share/applications/wltoys-drive.desktop"), "utf8");
+    if (!desktop.includes("Name=WLtoys Drive") || !desktop.includes(`Icon=${path.join(app, "wltoys-drive.png")}`)) throw Error("Desktop shortcut or its icon missing");
+  }
+  if (process.platform === "win32") {
+    const resources = run("objdump", ["-x", launch]);
+    if (!/Entry:\s+ID: 0x000003/.test(resources) || !/Entry:\s+ID: 0x00000e/.test(resources)) throw Error("Windows executable icon resources missing");
   }
   console.log("Checking bundled mpv decode");
   const playback = run(mpv, ["--terminal=yes", "--no-config", "--vo=null", "--ao=null", "--frames=4", "av://lavfi:testsrc2=size=128x72:rate=25"], { env, cwd: home });
@@ -65,6 +75,15 @@ try {
   if (process.platform === "win32") await checkWindowsInput(app, home, env);
   console.log(`PASS ${manifest.target}: extracted launch, runtime, player, HUD, UDP video/control, failsafes and notices`);
   if (process.env.KEEP_PACKAGE_CHECK) console.log(`Extracted package: ${top}`);
+} catch (error) {
+  failure = error;
+  throw error;
 } finally {
-  if (!process.env.KEEP_PACKAGE_CHECK) fs.rmSync(temp, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
+  if (!process.env.KEEP_PACKAGE_CHECK) {
+    try { fs.rmSync(temp, { recursive: true, force: true, maxRetries: 10, retryDelay: 200 }); }
+    catch (error) {
+      if (!failure) throw error;
+      console.error(`Could not remove test directory ${temp}: ${error.message}`);
+    }
+  }
 }

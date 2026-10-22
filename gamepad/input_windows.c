@@ -21,6 +21,27 @@ static void event(short value, unsigned char type, unsigned char number) {
     fwrite(b, 1, 8, stdout);
 }
 
+static void window_icon(HWND window, const wchar_t *player) {
+    static HWND previous;
+    static HICON large, small;
+    if (window == previous) return;
+    wchar_t file[32768];
+    DWORD length = GetModuleFileNameW(NULL, file, 32768);
+    if (!length || length > 32700) return;
+    wchar_t *name = wcsrchr(file, L'\\');
+    if (!name) return;
+    wcscpy(name + 1, L"mpv.exe");
+    if (_wcsicmp(file, player)) return; // Only our bundled player receives our icon.
+    wcscpy(name + 1, L"..\\wltoys-drive.ico");
+    if (!large) large = LoadImageW(NULL, file, IMAGE_ICON, GetSystemMetrics(SM_CXICON), GetSystemMetrics(SM_CYICON), LR_LOADFROMFILE);
+    if (!small) small = LoadImageW(NULL, file, IMAGE_ICON, GetSystemMetrics(SM_CXSMICON), GetSystemMetrics(SM_CYSMICON), LR_LOADFROMFILE);
+    if (!large || !small) return;
+    DWORD_PTR ignored;
+    if (!SendMessageTimeoutW(window, WM_SETICON, ICON_BIG, (LPARAM)large, SMTO_ABORTIFHUNG, 100, &ignored)) return;
+    if (!SendMessageTimeoutW(window, WM_SETICON, ICON_SMALL, (LPARAM)small, SMTO_ABORTIFHUNG, 100, &ignored)) return;
+    previous = window;
+}
+
 static int focused(void) {
     HWND window = GetForegroundWindow();
     DWORD pid = 0;
@@ -31,7 +52,9 @@ static int focused(void) {
     if (process) CloseHandle(process);
     if (!ok) return 0;
     wchar_t *name = wcsrchr(file, L'\\');
-    return name && _wcsicmp(name + 1, L"mpv.exe") == 0;
+    if (!name || _wcsicmp(name + 1, L"mpv.exe")) return 0;
+    window_icon(window, file);
+    return 1;
 }
 
 static void keyboard(void) {

@@ -58,7 +58,7 @@ end)
     child.stdout.on("data", (bytes) => output += bytes);
     child.stderr.on("data", (bytes) => {
       output += bytes;
-      if (!selectedAt && output.includes("fixture:selection\n")) selectedAt = Date.now();
+      if (!selectedAt && /fixture:selection\r?\n/.test(output)) selectedAt = Date.now();
     });
     const sender = setInterval(() => {
       for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
@@ -77,7 +77,7 @@ end)
     }, 40);
     const timeout = setTimeout(() => child.kill("SIGKILL"), 15000);
     try {
-      const [code] = await once(child, "exit");
+      const [code] = await once(child, "close");
       if (code !== 0 || /Wi-Fi ran before|Lua error|Error loading|The video window|property.*unavailable/i.test(output)) throw Error(`Startup ${scenario} failed (${code}): ${output}`);
       const ui = [...messages].join("\n");
       if (scenario === "empty" || scenario === "permission") {
