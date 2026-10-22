@@ -1,5 +1,5 @@
 {
-  "composition": "App window and Steam Deck OLED side by side, with the approved steering-wheel/controller logo below the app and a smaller WLtoys 6401 car below the center. The same logo appears in the app titlebar. Hardware photo proportions and the accepted layout are retained.",
+  "composition": "Real WLtoys 6401 and Valve Steam Deck OLED product photos in the accepted layout: fully visible app window and Deck side by side, smaller car below. No overlap, labels or headline. Native hardware photo proportions are retained; the OLED display and desktop window frame are composited.",
   "rebuild": "swift assets/readme/build.swift",
   "sources": [
     {
@@ -32,12 +32,6 @@
       "file": "source/hud-preview.jpg",
       "title": "Driver HUD over illustrative scene",
       "method": "Captured from mpv using the HUD renderer in drive.mjs. An isolated scratch copy substituted the still image for the demo test pattern and set demo state to 35% throttle, -10% steering, trim 0, recording, and 25 FPS. App source is unchanged. This is not live car footage."
-    },
-    {
-      "file": "../icons/wltoys-drive.png",
-      "title": "Approved steering-wheel/controller logo",
-      "method": "Built-in image_gen in generation mode; approved after review in Preview. The original transparent source.png is fitted proportionally to a square canvas and shared with the native app icons. The composition preserves its shape and colors.",
-      "prompt_file": "../icons/README.md"
     }
   ],
   "outputs": [

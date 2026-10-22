@@ -12,7 +12,7 @@ square canvas and pack the native formats:
 - `wltoys-drive.icns`: both macOS app bundles
 - `wltoys-drive.ico`: Windows executable, player window and taskbar
 
-The README composition uses the same PNG as the app icons through `assets/readme/build.swift`.
+The README displays the same PNG separately beneath the project title. The existing overview graphic is unchanged.
 
 ## Final generation prompt
 
