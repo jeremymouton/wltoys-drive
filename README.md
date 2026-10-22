@@ -68,6 +68,9 @@ coordinates. Recent Windows versions may also require Location access for
 Wi-Fi discovery. If access is denied, the app explains it and offers an
 **Open settings** button, then continues discovery when access is available.
 
+Windows may also ask to allow the bundled **Node.js** runtime through its
+firewall. Allow access on the car's network so its camera video can reach the app.
+
 Joining the car's Wi-Fi normally disconnects that device from the internet.
 The app already contains everything it needs to drive offline.
 
