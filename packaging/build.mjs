@@ -25,7 +25,7 @@ fs.mkdirSync(bin, { recursive: true }); fs.mkdirSync(licenses);
 fs.mkdirSync(out, { recursive: true });
 const manifest = { version, target, node: deps.node, dependencies: [] };
 function run(cmd, args, options = {}) {
-  const r = spawnSync(cmd, args, { encoding: "utf8", maxBuffer: 32 * 1024 * 1024, ...options });
+  const r = spawnSync(cmd, args, { encoding: "utf8", windowsHide: true, maxBuffer: 32 * 1024 * 1024, ...options });
   if (r.error || r.status !== 0) throw Error(`${cmd} failed: ${r.error?.message || r.stderr || r.stdout}`);
   return r.stdout;
 }
@@ -187,7 +187,7 @@ if (process.platform === "darwin") {
   copy(path.join(loaderInstall, "bin/vulkan-1.dll"), path.join(bin, "vulkan-1.dll"));
   const imports = await new Promise((resolve, reject) => {
     const names = new Set(); let pending = "";
-    const child = spawn("objdump", ["-p", path.join(bin, "mpv.exe")]);
+    const child = spawn("objdump", ["-p", path.join(bin, "mpv.exe")], { windowsHide: true });
     child.stdout.on("data", (b) => {
       const lines = (pending + b).split("\n"); pending = lines.pop();
       for (const line of lines) { const m = line.match(/DLL Name:\s*(\S+)/); if (m) names.add(m[1]); }

@@ -12,7 +12,7 @@ const archive = path.resolve(process.argv[2] || "");
 if (!fs.statSync(archive).isFile()) throw Error("Pass a built platform archive");
 const temp = fs.mkdtempSync(path.join(os.tmpdir(), "wltoys package 'check' "));
 const run = (cmd, args, options = {}) => {
-  const r = spawnSync(cmd, args, { encoding: "utf8", timeout: 60000, maxBuffer: 8 * 1024 * 1024, ...options });
+  const r = spawnSync(cmd, args, { encoding: "utf8", windowsHide: true, timeout: 60000, maxBuffer: 8 * 1024 * 1024, ...options });
   if (r.error || r.status !== 0) throw Error(`${cmd} (exit ${r.status}, signal ${r.signal}): ${r.error?.message || r.stderr || r.stdout}`);
   return r.stdout;
 };
@@ -80,7 +80,7 @@ try {
   if (!playback.includes("VO:")) throw Error("Bundled mpv did not decode video");
   if (process.platform === "win32") {
     const helper = path.join(app, "bin/input-helper.exe");
-    const probe = spawnSync(helper, ["--wifi-join", "invalid<profile>"], { env, timeout: 5000 });
+    const probe = spawnSync(helper, ["--wifi-join", "invalid<profile>"], { env, windowsHide: true, timeout: 5000 });
     if (probe.error || probe.status === 0) throw Error("Windows helper failed invalid-profile check");
   }
   console.log("Checking app UDP/input/video integration");

@@ -213,7 +213,7 @@ function openGamepadMac(listMode = false) {
   console.error(`[gamepad] spawning ${GAMEPAD_BIN}`);
   let helper;
   try {
-    helper = spawn(GAMEPAD_BIN, [], { stdio: ["ignore", "pipe", "inherit"] });
+    helper = spawn(GAMEPAD_BIN, [], { stdio: ["ignore", "pipe", "inherit"], windowsHide: true });
   } catch (e) {
     console.error(`[gamepad] helper failed to start: ${e.message} — no controller input`);
     return;
@@ -242,7 +242,7 @@ function openKeyboardHelper() {
   if (!KEYBOARD_BIN) return;
   let helper;
   try {
-    helper = spawn(KEYBOARD_BIN, process.platform === "win32" ? ["--keyboard"] : [], { stdio: ["ignore", "pipe", "inherit"] });
+    helper = spawn(KEYBOARD_BIN, process.platform === "win32" ? ["--keyboard"] : [], { stdio: ["ignore", "pipe", "inherit"], windowsHide: true });
   } catch (e) {
     console.error(`[keys] keyboard helper failed to start: ${e.message} — mpv keyboard fallback`);
     return;

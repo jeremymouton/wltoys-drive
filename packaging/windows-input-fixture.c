@@ -20,7 +20,7 @@ static void pump(unsigned milliseconds) {
 
 static int activate(HWND window) {
     ShowWindow(window, SW_SHOW);
-    SetWindowPos(window, HWND_TOPMOST, 200, 200, 480, 240, SWP_SHOWWINDOW);
+    SetWindowPos(window, HWND_TOP, 200, 200, 480, 240, SWP_SHOWWINDOW);
     for (int attempt = 0; attempt < 10; attempt++) {
         HWND foreground = GetForegroundWindow();
         DWORD current = GetCurrentThreadId();
@@ -78,8 +78,14 @@ int main(void) {
     if (GetAncestor(under, GA_ROOT) != window) {
         RECT rect; GetWindowRect(window, &rect);
         wchar_t other[128] = {0}; GetClassNameW(under, other, 128);
-        printf("CURSOR_OUTSIDE_WINDOW requested=%ld,%ld actual=%ld,%ld bounds=%ld,%ld,%ld,%ld under=%p class=%ls target=%p\n",
-            point.x, point.y, actual.x, actual.y, rect.left, rect.top, rect.right, rect.bottom, (void *)under, other, (void *)window);
+        wchar_t title[512] = {0}, image[32768] = {0};
+        HWND root = GetAncestor(under, GA_ROOT); DWORD pid = 0, size = 32768;
+        GetWindowTextW(root, title, 512); GetWindowThreadProcessId(root, &pid);
+        HANDLE owner = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, FALSE, pid);
+        if (owner) { QueryFullProcessImageNameW(owner, 0, image, &size); CloseHandle(owner); }
+        printf("CURSOR_OUTSIDE_WINDOW requested=%ld,%ld actual=%ld,%ld bounds=%ld,%ld,%ld,%ld under=%p class=%ls root=%p pid=%lu image=%ls title=%ls target=%p foreground=%p\n",
+            point.x, point.y, actual.x, actual.y, rect.left, rect.top, rect.right, rect.bottom, (void *)under, other,
+            (void *)root, pid, image, title, (void *)window, (void *)GetForegroundWindow());
         DestroyWindow(window); return 6;
     }
     INPUT click = {0}; click.type = INPUT_MOUSE; click.mi.dwFlags = MOUSEEVENTF_LEFTDOWN;

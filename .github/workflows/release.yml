@@ -88,6 +88,25 @@ jobs:
             [ -f "$archive" ] || continue
             node packaging/verify.mjs "$archive"
           done
+      - name: Capture Windows test failure
+        if: failure() && runner.os == 'Windows'
+        shell: powershell
+        run: |
+          New-Item -ItemType Directory -Force .ci-evidence | Out-Null
+          Add-Type -AssemblyName System.Windows.Forms,System.Drawing
+          $bounds = [System.Windows.Forms.SystemInformation]::VirtualScreen
+          $bitmap = New-Object System.Drawing.Bitmap $bounds.Width, $bounds.Height
+          $graphics = [System.Drawing.Graphics]::FromImage($bitmap)
+          $graphics.CopyFromScreen($bounds.Location, [System.Drawing.Point]::Empty, $bounds.Size)
+          $bitmap.Save("$pwd\.ci-evidence\desktop.png", [System.Drawing.Imaging.ImageFormat]::Png)
+          $graphics.Dispose()
+          $bitmap.Dispose()
+          Get-Process | Where-Object MainWindowHandle -ne 0 | Select-Object Id,ProcessName,MainWindowTitle | Out-File .ci-evidence\windows.txt
+      - uses: actions/upload-artifact@v7
+        if: failure() && runner.os == 'Windows'
+        with:
+          name: debug-${{ matrix.target }}
+          path: .ci-evidence/*
       - uses: actions/upload-artifact@v7
         with:
           name: ${{ matrix.target }}

@@ -37,7 +37,7 @@ function realRun(cmd, args) {
       resolve(r);
     };
     try {
-      child = spawn(cmd, args, { shell: false, env: { ...process.env, LC_ALL: "C" } });
+      child = spawn(cmd, args, { shell: false, windowsHide: true, env: { ...process.env, LC_ALL: "C" } });
     } catch (err) {
       finish({ code: 127, stdout: "", stderr: String((err && err.message) || err) });
       return;

@@ -10,15 +10,15 @@ export async function checkWindowsInput(app, home, env) {
   const dir = path.join(home, "native focus check"); fs.mkdirSync(dir);
   const bin = path.join(dir, "bin"); fs.mkdirSync(bin);
   const fixture = path.join(bin, "mpv.exe");
-  const build = spawnSync(compiler, [path.join(here, "windows-input-fixture.c"), "-O2", "-o", fixture, "-luser32"], { encoding: "utf8" });
+  const build = spawnSync(compiler, [path.join(here, "windows-input-fixture.c"), "-O2", "-mwindows", "-o", fixture, "-luser32"], { encoding: "utf8", windowsHide: true });
   if (build.error || build.status) throw Error(build.error?.message || build.stderr);
   fs.copyFileSync(path.join(app, "bin/input-helper.exe"), path.join(bin, "input-helper.exe"));
   fs.copyFileSync(path.join(app, "wltoys-drive.ico"), path.join(dir, "wltoys-drive.ico"));
-  const helper = spawn(path.join(bin, "input-helper.exe"), ["--keyboard"], { env });
+  const helper = spawn(path.join(bin, "input-helper.exe"), ["--keyboard"], { env, windowsHide: true });
   const helperClosed = once(helper, "close");
   let keys = "", errors = "";
   helper.stdout.on("data", (b) => keys += b); helper.stderr.on("data", (b) => errors += b);
-  const player = spawn(fixture, [], { env });
+  const player = spawn(fixture, [], { env, windowsHide: true });
   const playerClosed = once(player, "close");
   let message = ""; player.stdout.on("data", (b) => message += b);
   const timeout = setTimeout(() => { player.kill(); helper.kill(); }, 15000);
