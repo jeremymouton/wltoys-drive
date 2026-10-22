@@ -4,11 +4,15 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { spawn, spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
+import { compiler } from "./compiler.mjs";
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
-const target = { darwin: "macos-arm64", linux: "linux-x64", win32: "windows-x64" }[process.platform];
-if (!target || process.arch !== (process.platform === "darwin" ? "arm64" : "x64")) throw Error("Build on the matching supported OS and architecture");
+const platform = { darwin: "macos", linux: "linux", win32: "windows" }[process.platform];
+if (!platform || !(process.platform === "darwin" ? ["arm64"] : ["x64", "arm64"]).includes(process.arch)) throw Error("Build on the matching supported OS and architecture");
+const target = `${platform}-${process.arch}`;
+if (process.env.RELEASE_TARGET && process.env.RELEASE_TARGET !== target) throw Error(`Requested ${process.env.RELEASE_TARGET}, but the native builder is ${target}`);
 const deps = JSON.parse(fs.readFileSync(path.join(root, "packaging/dependencies.json")));
+const windowsMpv = { ...deps.windowsMpv[process.arch], source: deps.windowsMpv.source };
 const version = process.env.RELEASE_VERSION || "0.0.0-dev";
 if (!/^[\w.-]+$/.test(version)) throw Error("Invalid release version");
 const out = path.resolve(root, "dist");
@@ -142,7 +146,7 @@ if (process.platform === "darwin") {
   packages.add("mpv");
   for (const pkg of packages) {
     const fields = run("dpkg-query", ["-W", "-f=${Package}\t${Version}\t${source:Package}\t${source:Version}", pkg]).trim().split("\t");
-    manifest.dependencies.push({ name: fields[0], version: fields[1], source: fields.slice(2), sourceRepository: "https://archive.ubuntu.com/ubuntu/pool/" });
+    manifest.dependencies.push({ name: fields[0], version: fields[1], source: fields.slice(2), sourceRepository: process.arch === "arm64" ? "https://ports.ubuntu.com/ubuntu-ports/pool/" : "https://archive.ubuntu.com/ubuntu/pool/" });
     collectNotices(`/usr/share/doc/${pkg.split(":")[0]}`, pkg.replace(":", "-"));
   }
   fs.writeFileSync(path.join(bin, "mpv"), '#!/bin/sh\nHERE=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)\nexport LD_LIBRARY_PATH="$HERE/../lib${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"\nexec "$HERE/mpv.bin" "$@"\n');
@@ -155,7 +159,7 @@ if (process.platform === "darwin") {
   executable(path.join(top, "Install desktop shortcut.sh"));
 } else {
   const archive = path.join(work, "mpv.7z");
-  await download(deps.windowsMpv.url, archive, deps.windowsMpv.sha256);
+  await download(windowsMpv.url, archive, windowsMpv.sha256);
   const expanded = path.join(work, "mpv");
   run("7z", ["x", archive, `-o${expanded}`, "-y"]);
   for (const file of fs.readdirSync(expanded).filter((f) => /\.(exe|dll)$/i.test(f) && !/^updater/i.test(f))) copy(path.join(expanded, file), path.join(bin, file));
@@ -169,11 +173,12 @@ if (process.platform === "darwin") {
     manifest.dependencies.push({ name: component, ...deps[component] });
   }
   console.log("Building the portable Vulkan loader");
+  const windowsArch = process.arch === "arm64" ? "ARM64" : "x64";
   const headersBuild = path.join(work, "headers-build"), headersInstall = path.join(work, "headers-install");
-  run("cmake", ["-S", sources["Vulkan-Headers"], "-B", headersBuild, "-G", "Visual Studio 17 2022", "-A", "x64", `-DCMAKE_INSTALL_PREFIX=${headersInstall}`]);
+  run("cmake", ["-S", sources["Vulkan-Headers"], "-B", headersBuild, "-G", "Visual Studio 17 2022", "-A", windowsArch, `-DCMAKE_INSTALL_PREFIX=${headersInstall}`]);
   run("cmake", ["--build", headersBuild, "--config", "Release", "--target", "install"]);
   const loaderBuild = path.join(work, "loader-build"), loaderInstall = path.join(work, "loader-install");
-  run("cmake", ["-S", sources["Vulkan-Loader"], "-B", loaderBuild, "-G", "Visual Studio 17 2022", "-A", "x64", `-DCMAKE_PREFIX_PATH=${headersInstall}`, `-DCMAKE_INSTALL_PREFIX=${loaderInstall}`, "-DBUILD_TESTS=OFF", "-DUPDATE_DEPS=OFF"]);
+  run("cmake", ["-S", sources["Vulkan-Loader"], "-B", loaderBuild, "-G", "Visual Studio 17 2022", "-A", windowsArch, `-DCMAKE_PREFIX_PATH=${headersInstall}`, `-DCMAKE_INSTALL_PREFIX=${loaderInstall}`, "-DBUILD_TESTS=OFF", "-DUPDATE_DEPS=OFF"]);
   run("cmake", ["--build", loaderBuild, "--config", "Release", "--target", "install", "--parallel", "2"]);
   copy(path.join(loaderInstall, "bin/vulkan-1.dll"), path.join(bin, "vulkan-1.dll"));
   const imports = await new Promise((resolve, reject) => {
@@ -192,12 +197,12 @@ if (process.platform === "darwin") {
     if (!/^api-ms-/i.test(dll) && !fs.existsSync(path.join(bin, dll)) && !fs.existsSync(path.join(process.env.SystemRoot, "System32", dll))) console.log(`DLL absent from package/System32: ${dll}`);
   }
   collectNotices(expanded, "mpv-windows");
-  manifest.dependencies.push(deps.windowsMpv);
-  run("powershell.exe", ["-NoProfile", "-ExecutionPolicy", "Bypass", "-File", path.join(root, "gamepad/build-windows.ps1"), "-Output", path.join(bin, "input-helper.exe")]);
+  manifest.dependencies.push(windowsMpv);
+  run("powershell.exe", ["-NoProfile", "-ExecutionPolicy", "Bypass", "-File", path.join(root, "gamepad/build-windows.ps1"), "-Output", path.join(bin, "input-helper.exe"), "-Compiler", compiler]);
   copy(path.join(root, "assets/icons/wltoys-drive.ico"), path.join(app, "wltoys-drive.ico"));
   const iconResource = path.join(work, "icon.o");
   run("windres", ["-I", path.join(root, "assets/icons"), path.join(root, "packaging/windows-icon.rc"), "-o", iconResource]);
-  run("gcc", ["-O2", "-municode", "-mwindows", path.join(root, "packaging/windows-launcher.c"), iconResource, "-o", path.join(top, "WLtoys Drive.exe"), "-luser32"]);
+  run(compiler, ["-O2", "-municode", "-mwindows", path.join(root, "packaging/windows-launcher.c"), iconResource, "-o", path.join(top, "WLtoys Drive.exe"), "-luser32"]);
 }
 fs.writeFileSync(path.join(app, "build.json"), JSON.stringify(manifest, null, 2) + "\n");
 fs.writeFileSync(path.join(licenses, "SOURCES.txt"), `Node: https://nodejs.org/dist/v${deps.node}/node-v${deps.node}.tar.gz\nmpv: https://github.com/mpv-player/mpv\nWindows player build recipes: ${deps.windowsMpv.source}\nExact binary package versions, source URLs and build metadata are in ../build.json.\nFor Linux sources: enable matching Ubuntu 22.04 deb-src entries and run apt-get source PACKAGE=SOURCE_VERSION from that manifest.\nFor macOS sources: source archives, checksums and formula build metadata are recorded per dependency in that manifest.\n`);

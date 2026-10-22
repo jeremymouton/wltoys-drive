@@ -14,7 +14,7 @@ NODE_VER="v22.11.0"
 NODE_DIR="$RT/node"
 REPO="jeremymouton/wltoys-drive"
 
-# Platform token: linux-x64 | macos-arm64 (also used verbatim in release asset
+# Platform token: linux-x64 | linux-arm64 | macos-arm64 (also used in release asset
 # names). Rosetta trap: `uname -m` prints x86_64 on an arm64 Mac under a
 # translated shell; `sysctl -n hw.optional.arm64` does not — trust it on Darwin.
 detect_platform() {
@@ -42,8 +42,8 @@ PLATFORM="$(detect_platform)"
 # nodejs.org names its macOS builds "darwin", not "macos" — remap the token.
 case "$PLATFORM" in
   macos-arm64) NODE_SLUG="darwin-arm64" ;;
-  linux-x64)   NODE_SLUG="linux-x64" ;;
-  *) echo "install.sh: unsupported platform: $PLATFORM (need macos-arm64 or linux-x64)"; exit 1 ;;
+  linux-x64|linux-arm64) NODE_SLUG="$PLATFORM" ;;
+  *) echo "install.sh: unsupported platform: $PLATFORM (need macos-arm64, linux-x64 or linux-arm64)"; exit 1 ;;
 esac
 
 echo "==> WLtoys 6401 driver — setup ($PLATFORM)"

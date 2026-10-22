@@ -1,4 +1,4 @@
-param([string]$Output = "$PSScriptRoot\input-helper.exe")
+param([string]$Output = "$PSScriptRoot\input-helper.exe", [string]$Compiler = "gcc")
 $ErrorActionPreference = 'Stop'
-& gcc -std=c11 -O2 -Wall -Wextra -municode "$PSScriptRoot/input_windows.c" -o $Output -lwlanapi -liphlpapi -lws2_32 -luser32
+& $Compiler -std=c11 -O2 -Wall -Wextra -municode "$PSScriptRoot/input_windows.c" -o $Output -lwlanapi -liphlpapi -lws2_32 -luser32
 if ($LASTEXITCODE -ne 0) { throw 'Windows helper compilation failed' }
