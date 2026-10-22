@@ -43,8 +43,13 @@ static int activate(HWND window) {
 }
 
 int main(void) {
-    HWND window = CreateWindowExW(0, L"STATIC", L"WLtoys keyboard verification", WS_OVERLAPPEDWINDOW,
-        0, 0, 480, 240, NULL, NULL, GetModuleHandleW(NULL), NULL);
+    WNDCLASSW type = {0};
+    type.lpfnWndProc = DefWindowProcW;
+    type.hInstance = GetModuleHandleW(NULL);
+    type.lpszClassName = L"WLtoysInputCheck";
+    if (!RegisterClassW(&type)) return 1;
+    HWND window = CreateWindowExW(0, type.lpszClassName, L"WLtoys keyboard verification", WS_OVERLAPPEDWINDOW,
+        0, 0, 480, 240, NULL, NULL, type.hInstance, NULL);
     if (!window) return 1;
     if (!activate(window)) { DestroyWindow(window); puts("NO_INTERACTIVE_DESKTOP"); return 2; }
     for (int attempt = 0; attempt < 20; attempt++) {
@@ -55,18 +60,18 @@ int main(void) {
         DestroyWindow(window); puts("MISSING_WINDOW_ICONS"); return 3;
     }
     puts("PASS window icons");
-    key('W', 0); key('D', 0); Sleep(500);
-    key('W', KEYEVENTF_KEYUP); key('D', KEYEVENTF_KEYUP); Sleep(350);
-    key(VK_DOWN, 0); Sleep(120); key(VK_DOWN, KEYEVENTF_KEYUP); Sleep(120);
-    key(VK_RETURN, 0); Sleep(120); key(VK_RETURN, KEYEVENTF_KEYUP); Sleep(120);
+    key('W', 0); key('D', 0); pump(500);
+    key('W', KEYEVENTF_KEYUP); key('D', KEYEVENTF_KEYUP); pump(350);
+    key(VK_DOWN, 0); pump(120); key(VK_DOWN, KEYEVENTF_KEYUP); pump(120);
+    key(VK_RETURN, 0); pump(120); key(VK_RETURN, KEYEVENTF_KEYUP); pump(120);
     RECT bounds; GetClientRect(window, &bounds);
     POINT point = {bounds.right / 2, bounds.bottom / 2}; ClientToScreen(window, &point);
     SetCursorPos(point.x, point.y);
     INPUT click = {0}; click.type = INPUT_MOUSE; click.mi.dwFlags = MOUSEEVENTF_LEFTDOWN;
-    SendInput(1, &click, sizeof(click)); Sleep(120);
-    click.mi.dwFlags = MOUSEEVENTF_LEFTUP; SendInput(1, &click, sizeof(click)); Sleep(120);
+    SendInput(1, &click, sizeof(click)); pump(120);
+    click.mi.dwFlags = MOUSEEVENTF_LEFTUP; SendInput(1, &click, sizeof(click)); pump(120);
     // A physically held key must cease driving when the player loses focus.
-    key('W', 0); Sleep(300); ShowWindow(window, SW_HIDE); Sleep(400);
+    key('W', 0); pump(300); ShowWindow(window, SW_HIDE); pump(400);
     key('W', KEYEVENTF_KEYUP);
     DestroyWindow(window); return 0;
 }
