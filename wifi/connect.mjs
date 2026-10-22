@@ -37,7 +37,7 @@ function realRun(cmd, args) {
       resolve(r);
     };
     try {
-      child = spawn(cmd, args, { shell: false, windowsHide: true, env: { ...process.env, LC_ALL: "C" } });
+      child = spawn(cmd, args, { shell: false, windowsHide: process.platform === "win32" && path.basename(cmd).toLowerCase() !== "explorer.exe", env: { ...process.env, LC_ALL: "C" } });
     } catch (err) {
       finish({ code: 127, stdout: "", stderr: String((err && err.message) || err) });
       return;
