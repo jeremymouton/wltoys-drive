@@ -29,7 +29,7 @@ export async function checkWindowsInput(app, home, env) {
     const combined = lines.findIndex((s) => s === "KEYS w d");
     const released = lines.findIndex((s, i) => i > combined && s === "KEYS -");
     const forward = lines.findIndex((s, i) => i > released && s === "KEYS w");
-    if (combined < 0 || released <= combined || forward <= released || !lines.slice(-5).every((s) => s === "KEYS -")) throw Error(`Native keyboard combine/release/focus check failed: ${JSON.stringify({ combined, released, forward, tail: lines.slice(-5) })}\n${keys} ${errors}`);
+    if (combined < 0 || released <= combined || forward <= released || !lines.slice(-5).every((s) => s === "KEYS -")) throw Error(`Native keyboard combine/release/focus check failed: ${JSON.stringify({ combined, released, forward, tail: lines.slice(-5) })}\nFixture: ${message}\n${keys} ${errors}`);
     if (!lines.includes("UI DOWN") || !lines.includes("UI SELECT") || !lines.some((s) => s.startsWith("UI CLICK "))) throw Error(`Native picker input failed: ${keys}`);
     if (!message.includes("PASS window icons")) throw Error(`Native window icon missing: ${message}`);
     console.log("PASS Windows native keyboard: combined keys, picker navigation/click, release, focus-loss neutral and window icons");

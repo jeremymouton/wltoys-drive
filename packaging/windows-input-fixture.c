@@ -29,7 +29,10 @@ static int activate(HWND window) {
         BringWindowToTop(window); SetForegroundWindow(window); SetFocus(window);
         if (attached) AttachThreadInput(current, other, FALSE);
         pump(200);
-        if (GetForegroundWindow() == window) return 1;
+        if (GetForegroundWindow() == window) {
+            key(VK_ESCAPE, 0); key(VK_ESCAPE, KEYEVENTF_KEYUP); pump(100);
+            return GetForegroundWindow() == window;
+        }
     }
     DWORD session = 0, needed = 0;
     wchar_t name[80] = L"unavailable";
@@ -43,6 +46,7 @@ static int activate(HWND window) {
 }
 
 int main(void) {
+    SetProcessDPIAware();
     WNDCLASSW type = {0};
     type.lpfnWndProc = DefWindowProcW;
     type.hInstance = GetModuleHandleW(NULL);
@@ -64,12 +68,22 @@ int main(void) {
     key('W', KEYEVENTF_KEYUP); key('D', KEYEVENTF_KEYUP); pump(350);
     key(VK_DOWN, 0); pump(120); key(VK_DOWN, KEYEVENTF_KEYUP); pump(120);
     key(VK_RETURN, 0); pump(120); key(VK_RETURN, KEYEVENTF_KEYUP); pump(120);
+    if (GetForegroundWindow() != window) { puts("FOCUS_LOST_AFTER_PICKER_KEYS"); DestroyWindow(window); return 4; }
     RECT bounds; GetClientRect(window, &bounds);
     POINT point = {bounds.right / 2, bounds.bottom / 2}; ClientToScreen(window, &point);
-    SetCursorPos(point.x, point.y);
+    if (!SetCursorPos(point.x, point.y)) { puts("CURSOR_MOVE_FAILED"); DestroyWindow(window); return 5; }
+    POINT actual; GetCursorPos(&actual);
+    HWND under = WindowFromPoint(actual);
+    if (GetAncestor(under, GA_ROOT) != window) {
+        RECT rect; GetWindowRect(window, &rect);
+        printf("CURSOR_OUTSIDE_WINDOW requested=%ld,%ld actual=%ld,%ld bounds=%ld,%ld,%ld,%ld under=%p target=%p\n",
+            point.x, point.y, actual.x, actual.y, rect.left, rect.top, rect.right, rect.bottom, (void *)under, (void *)window);
+        DestroyWindow(window); return 6;
+    }
     INPUT click = {0}; click.type = INPUT_MOUSE; click.mi.dwFlags = MOUSEEVENTF_LEFTDOWN;
     SendInput(1, &click, sizeof(click)); pump(120);
     click.mi.dwFlags = MOUSEEVENTF_LEFTUP; SendInput(1, &click, sizeof(click)); pump(120);
+    if (GetForegroundWindow() != window) { puts("FOCUS_LOST_AFTER_CLIENT_CLICK"); DestroyWindow(window); return 7; }
     // A physically held key must cease driving when the player loses focus.
     key('W', 0); pump(300); ShowWindow(window, SW_HIDE); pump(400);
     key('W', KEYEVENTF_KEYUP);
