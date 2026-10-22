@@ -24,7 +24,13 @@ native helpers; there is no runtime installation step.
 |---|---|---|
 | macOS, Apple Silicon | `wltoys-drive-macos-arm64.zip` | Open **WLtoys Drive.app**; optionally move it to Applications |
 | Steam Deck / Linux x64 | `wltoys-drive-linux-x64.tar.gz` | Open **wltoys-drive** from the extracted folder |
+| Linux ARM64 | `wltoys-drive-linux-arm64.tar.gz` | Open **wltoys-drive** from the extracted folder |
 | Windows 10/11 x64 | `wltoys-drive-windows-x64.zip` | Open **WLtoys Drive.exe** from the extracted folder |
+| Windows 11 ARM64 | `wltoys-drive-windows-arm64.zip` | Open **WLtoys Drive.exe** from the extracted folder |
+
+Choose the download matching your operating system's architecture. Steam Deck
+uses **x64**. Windows shows the system type in **Settings → System → About**;
+on Linux, `uname -m` reports `x86_64` for x64 or `aarch64` for ARM64.
 
 macOS release builds use macOS 14 runners; the bundle's Info.plist records the
 actual minimum OS required by its binaries. Locally built bundles can require a
@@ -32,7 +38,9 @@ newer macOS. Linux builds target Ubuntu 22.04's glibc baseline (2.35), including
 SteamOS; systems with older glibc or without NetworkManager are not supported
 for automatic Wi-Fi connection. Windows gamepads must support **XInput** (Xbox
 controllers and compatible devices); keyboard driving needs no controller.
-Intel Macs, Windows ARM64 and Linux ARM64 are not release targets.
+Intel Macs are not release targets. ARM64 packages are built and exercised on
+native Linux and Windows ARM64 runners, including startup, video, input and
+failsafes. Physical ARM64 Wi-Fi adapters and gamepads still need hardware testing.
 
 The Mac app is ad-hoc signed, **not Apple-notarized**. Windows builds are
 unsigned. OS download protections can therefore require your normal approval
@@ -105,9 +113,10 @@ bash run.sh
 macOS source setup needs Homebrew. Building the Mac helpers also needs Xcode
 Command Line Tools (`bash gamepad/build-mac.sh`). Windows source runs need Node,
 mpv on PATH, and a built helper (`powershell -File gamepad/build-windows.ps1`,
-with MinGW GCC available), then `node drive.mjs`.
+with MinGW GCC available), then `node drive.mjs`. On Windows ARM64, use the
+MSYS2 CLANGARM64 toolchain and add `-Compiler clang` to the helper build command.
 
-Build a platform package **on that platform**:
+Build a platform package **on the matching operating system and architecture**:
 
 ```bash
 node packaging/build.mjs
