@@ -14,6 +14,7 @@ permissions:
 
 jobs:
   package:
+    name: package (${{ matrix.target }})
     strategy:
       fail-fast: false
       matrix:
@@ -59,7 +60,7 @@ jobs:
         with:
           msystem: ${{ matrix.msystem }}
           install: ${{ matrix.toolchain }}
-          update: true
+          update: ${{ matrix.arch == 'arm64' }}
           path-type: inherit
       - name: Windows compiler path
         if: runner.os == 'Windows'

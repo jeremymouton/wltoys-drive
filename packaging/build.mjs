@@ -174,11 +174,15 @@ if (process.platform === "darwin") {
   }
   console.log("Building the portable Vulkan loader");
   const windowsArch = process.arch === "arm64" ? "ARM64" : "x64";
+  const vswhere = path.join(process.env["ProgramFiles(x86)"], "Microsoft Visual Studio/Installer/vswhere.exe");
+  const vsMajor = run(vswhere, ["-latest", "-products", "*", "-requires", `Microsoft.VisualStudio.Component.VC.Tools.${process.arch === "arm64" ? "ARM64" : "x86.x64"}`, "-property", "installationVersion"]).trim().split(".")[0];
+  const generator = process.env.CMAKE_GENERATOR || { 17: "Visual Studio 17 2022", 18: "Visual Studio 18 2026" }[vsMajor];
+  if (!generator) throw Error(`No supported Visual Studio C++ tools for ${windowsArch}`);
   const headersBuild = path.join(work, "headers-build"), headersInstall = path.join(work, "headers-install");
-  run("cmake", ["-S", sources["Vulkan-Headers"], "-B", headersBuild, "-G", "Visual Studio 17 2022", "-A", windowsArch, `-DCMAKE_INSTALL_PREFIX=${headersInstall}`]);
+  run("cmake", ["-S", sources["Vulkan-Headers"], "-B", headersBuild, "-G", generator, "-A", windowsArch, `-DCMAKE_INSTALL_PREFIX=${headersInstall}`]);
   run("cmake", ["--build", headersBuild, "--config", "Release", "--target", "install"]);
   const loaderBuild = path.join(work, "loader-build"), loaderInstall = path.join(work, "loader-install");
-  run("cmake", ["-S", sources["Vulkan-Loader"], "-B", loaderBuild, "-G", "Visual Studio 17 2022", "-A", windowsArch, `-DCMAKE_PREFIX_PATH=${headersInstall}`, `-DCMAKE_INSTALL_PREFIX=${loaderInstall}`, "-DBUILD_TESTS=OFF", "-DUPDATE_DEPS=OFF"]);
+  run("cmake", ["-S", sources["Vulkan-Loader"], "-B", loaderBuild, "-G", generator, "-A", windowsArch, `-DCMAKE_PREFIX_PATH=${headersInstall}`, `-DCMAKE_INSTALL_PREFIX=${loaderInstall}`, "-DBUILD_TESTS=OFF", "-DUPDATE_DEPS=OFF"]);
   run("cmake", ["--build", loaderBuild, "--config", "Release", "--target", "install", "--parallel", "2"]);
   copy(path.join(loaderInstall, "bin/vulkan-1.dll"), path.join(bin, "vulkan-1.dll"));
   const imports = await new Promise((resolve, reject) => {
