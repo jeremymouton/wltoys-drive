@@ -3,13 +3,14 @@ import path from "node:path";
 import { spawn, spawnSync } from "node:child_process";
 import { once } from "node:events";
 import { fileURLToPath } from "node:url";
+import { compiler } from "./compiler.mjs";
 
 export async function checkWindowsInput(app, home, env) {
   const here = path.dirname(fileURLToPath(import.meta.url));
   const dir = path.join(home, "native focus check"); fs.mkdirSync(dir);
   const bin = path.join(dir, "bin"); fs.mkdirSync(bin);
   const fixture = path.join(bin, "mpv.exe");
-  const build = spawnSync("gcc", [path.join(here, "windows-input-fixture.c"), "-O2", "-o", fixture, "-luser32"], { encoding: "utf8" });
+  const build = spawnSync(compiler, [path.join(here, "windows-input-fixture.c"), "-O2", "-o", fixture, "-luser32"], { encoding: "utf8" });
   if (build.error || build.status) throw Error(build.error?.message || build.stderr);
   fs.copyFileSync(path.join(app, "bin/input-helper.exe"), path.join(bin, "input-helper.exe"));
   fs.copyFileSync(path.join(app, "wltoys-drive.ico"), path.join(dir, "wltoys-drive.ico"));

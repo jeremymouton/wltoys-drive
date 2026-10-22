@@ -5,12 +5,13 @@ import { spawn, spawnSync } from "node:child_process";
 import { once } from "node:events";
 import { fileURLToPath } from "node:url";
 import { luaString } from "../runtime.mjs";
+import { compiler } from "./compiler.mjs";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 
 export async function checkStartup({ app, node, mpv, env, home }) {
   const helper = path.join(home, process.platform === "win32" ? "startup-fixture.exe" : "startup-fixture");
-  const build = spawnSync(process.platform === "win32" ? "gcc" : "cc", [path.join(here, "fixture.c"), "-O2", "-o", helper], { encoding: "utf8" });
+  const build = spawnSync(compiler, [path.join(here, "fixture.c"), "-O2", "-o", helper], { encoding: "utf8" });
   if (build.error || build.status !== 0) throw Error(build.error?.message || build.stderr);
   const feed = fs.readFileSync(path.join(here, "camera.h265"));
   const boundaries = [];

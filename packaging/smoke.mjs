@@ -5,6 +5,7 @@ import { spawn, spawnSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import { once } from "node:events";
 import { luaString } from "../runtime.mjs";
+import { compiler } from "./compiler.mjs";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 export async function smoke({ app, node, mpv, env, home }) {
@@ -33,7 +34,7 @@ mp.register_event('file-loaded', function()
 end)
 `);
   const helper = path.join(home, process.platform === "win32" ? "input-fixture.exe" : "input-fixture");
-  const compiled = spawnSync(process.platform === "win32" ? "gcc" : "cc", [path.join(here, "fixture.c"), "-O2", "-o", helper], { encoding: "utf8" });
+  const compiled = spawnSync(compiler, [path.join(here, "fixture.c"), "-O2", "-o", helper], { encoding: "utf8" });
   if (compiled.error || compiled.status !== 0) throw Error(compiled.error?.message || compiled.stderr);
   console.log("Starting synthetic car and extracted driver");
   const child = spawn(node, [path.join(app, "drive.mjs")], {

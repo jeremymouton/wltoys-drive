@@ -20,10 +20,25 @@ jobs:
         include:
           - os: macos-14
             target: macos-arm64
+            arch: arm64
           - os: ubuntu-22.04
             target: linux-x64
+            arch: x64
+          - os: ubuntu-22.04-arm
+            target: linux-arm64
+            arch: arm64
           - os: windows-2022
             target: windows-x64
+            arch: x64
+            msystem: MINGW64
+            toolchain: mingw-w64-x86_64-gcc
+            prefix: mingw64
+          - os: windows-11-arm
+            target: windows-arm64
+            arch: arm64
+            msystem: CLANGARM64
+            toolchain: mingw-w64-clang-aarch64-clang
+            prefix: clangarm64
     runs-on: ${{ matrix.os }}
     timeout-minutes: 20
     steps:
@@ -31,6 +46,7 @@ jobs:
       - uses: actions/setup-node@v7
         with:
           node-version: '24.19.0'
+          architecture: ${{ matrix.arch }}
       - name: macOS build tools
         if: runner.os == 'macOS'
         run: brew install mpv
@@ -41,13 +57,14 @@ jobs:
         id: msys2
         if: runner.os == 'Windows'
         with:
-          msystem: MINGW64
-          install: mingw-w64-x86_64-gcc
+          msystem: ${{ matrix.msystem }}
+          install: ${{ matrix.toolchain }}
+          update: true
           path-type: inherit
       - name: Windows compiler path
         if: runner.os == 'Windows'
         shell: pwsh
-        run: Add-Content $env:GITHUB_PATH '${{ steps.msys2.outputs.msys2-location }}\mingw64\bin'
+        run: Add-Content $env:GITHUB_PATH '${{ steps.msys2.outputs.msys2-location }}\${{ matrix.prefix }}\bin'
       - name: Source checks
         shell: bash
         run: |
@@ -55,10 +72,12 @@ jobs:
           node --check runtime.mjs
           node drive.mjs --selftest
           node --test wifi/test/*.test.mjs
+          node --test packaging/test/*.test.mjs
       - name: Package application
         shell: bash
         env:
           RELEASE_VERSION: ${{ github.ref_type == 'tag' && github.ref_name || '0.0.0-dev' }}
+          RELEASE_TARGET: ${{ matrix.target }}
         run: node packaging/build.mjs
       - name: Verify extracted application
         timeout-minutes: 3

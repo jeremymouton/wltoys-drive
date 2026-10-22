@@ -6,6 +6,7 @@ import { fileURLToPath } from "node:url";
 import { smoke } from "./smoke.mjs";
 import { checkWindowsInput } from "./windows-input-check.mjs";
 import { checkStartup } from "./startup-check.mjs";
+import { binaryArchitecture, peResourceTypes } from "./binary.mjs";
 
 const archive = path.resolve(process.argv[2] || "");
 if (!fs.statSync(archive).isFile()) throw Error("Pass a built platform archive");
@@ -22,6 +23,18 @@ try {
   const top = path.join(temp, fs.readdirSync(temp).find((s) => s !== "__MACOSX"));
   const app = process.platform === "darwin" ? path.join(top, "Contents/Resources") : top;
   const manifest = JSON.parse(fs.readFileSync(path.join(app, "build.json")));
+  const target = `${{ darwin: "macos", linux: "linux", win32: "windows" }[process.platform]}-${process.arch}`;
+  if (manifest.target !== target) throw Error(`Archive target ${manifest.target} does not match native runner ${target}`);
+  if (process.platform !== "darwin") {
+    const native = process.platform === "win32"
+      ? [path.join(top, "WLtoys Drive.exe"), ...fs.readdirSync(path.join(app, "bin")).filter((file) => /\.(exe|dll)$/i.test(file)).map((file) => path.join(app, "bin", file))]
+      : [path.join(app, "bin/node"), path.join(app, "bin/mpv.bin"), ...fs.readdirSync(path.join(app, "lib")).map((file) => path.join(app, "lib", file))];
+    for (const file of native) {
+      const arch = binaryArchitecture(fs.readFileSync(file));
+      if (arch !== process.arch) throw Error(`Wrong binary architecture: ${file} is ${arch}, expected ${process.arch}`);
+    }
+    console.log(`PASS ${target}: ${native.length} native binaries match ${process.arch}`);
+  }
   if (!manifest.dependencies.length) throw Error("No bundled dependency provenance");
   for (const entry of ["drive.mjs", "runtime.mjs", "wifi/connect.mjs", "wifi/windows.mjs", "wltoys-drive.png", "licenses/Node-LICENSE", "licenses/mpv-GPL", "licenses/SOURCES.txt"]) {
     if (!fs.statSync(path.join(app, entry)).isFile()) throw Error(`Package missing ${entry}`);
@@ -45,6 +58,7 @@ try {
     }
   }
   if (!run(node, ["--version"], { env }).includes(manifest.node)) throw Error("Wrong Node runtime version");
+  if (run(node, ["-p", "process.platform + '-' + process.arch"], { env }).trim() !== `${process.platform}-${process.arch}`) throw Error("Bundled Node architecture does not match native runner");
   const launch = process.platform === "darwin" ? path.join(top, "Contents/MacOS/wltoys-drive") : process.platform === "linux" ? path.join(top, "wltoys-drive") : path.join(top, "WLtoys Drive.exe");
   const args = ["--selftest"];
   console.log("Checking launcher self-test");
@@ -57,8 +71,8 @@ try {
     if (!desktop.includes("Name=WLtoys Drive") || !desktop.includes(`Icon=${path.join(app, "wltoys-drive.png")}`)) throw Error("Desktop shortcut or its icon missing");
   }
   if (process.platform === "win32") {
-    const resources = run("objdump", ["-x", launch]);
-    if (!/Entry:\s+ID: 0x000003/.test(resources) || !/Entry:\s+ID: 0x00000e/.test(resources)) throw Error("Windows executable icon resources missing");
+    const resources = peResourceTypes(fs.readFileSync(launch));
+    if (!resources.has(3) || !resources.has(14)) throw Error("Windows executable icon resources missing");
   }
   console.log("Checking bundled mpv decode");
   const playback = run(mpv, ["--terminal=yes", "--no-config", "--vo=null", "--ao=null", "--frames=4", "av://lavfi:testsrc2=size=128x72:rate=25"], { env, cwd: home });
