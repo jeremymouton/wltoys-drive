@@ -17,13 +17,6 @@ const run = (cmd, args, options = {}) => {
   return r.stdout;
 };
 let failure;
-const firewallRules = [];
-const powershell = process.platform === "win32" ? path.join(process.env.SystemRoot, "System32/WindowsPowerShell/v1.0/powershell.exe") : null;
-function firewall(command, name, program = "") {
-  return run(powershell, ["-NoProfile", "-NonInteractive", "-Command", command], {
-    env: { ...process.env, WLTOYS_CHECK_RULE: name, WLTOYS_CHECK_PROGRAM: program },
-  });
-}
 try {
   run(process.platform === "darwin" ? "ditto" : process.platform === "win32" ? path.join(process.env.SystemRoot, "System32/tar.exe") : "tar", process.platform === "darwin" ? ["-x", "-k", archive, temp] : ["-xf", archive, "-C", temp]);
   console.log("Extracted package");
@@ -49,14 +42,6 @@ try {
   }
   const node = path.join(app, "bin", process.platform === "win32" ? "node.exe" : "node");
   const mpv = path.join(app, "bin", process.platform === "win32" ? "mpv.exe" : "mpv");
-  if (process.platform === "win32" && process.env.CI) {
-    for (const program of new Set([process.execPath, node])) {
-      const name = `wltoys-verify-${process.pid}-${firewallRules.length}`;
-      firewallRules.push(name);
-      firewall("$ErrorActionPreference = 'Stop'; New-NetFirewallRule -Name $env:WLTOYS_CHECK_RULE -DisplayName $env:WLTOYS_CHECK_RULE -Program $env:WLTOYS_CHECK_PROGRAM -Direction Inbound -Protocol UDP -RemoteAddress 127.0.0.1 -Action Allow -Profile Any | Out-Null", name, program);
-    }
-    console.log("CI firewall: temporary loopback-only UDP rules for verification runtimes");
-  }
   const home = path.join(temp, "test home"); fs.mkdirSync(home);
   const env = { ...process.env, HOME: home, USERPROFILE: home, TMPDIR: home, TMP: home, TEMP: home, NO_AUTOCONNECT: "1", PATH: process.platform === "win32" ? `${process.env.SystemRoot}\\System32;${process.env.SystemRoot}` : "/usr/bin:/bin:/usr/sbin:/sbin" };
   if (process.platform === "darwin") {
@@ -109,15 +94,6 @@ try {
   failure = error;
   throw error;
 } finally {
-  let firewallFailure;
-  for (const name of firewallRules) {
-    try {
-      firewall("$ErrorActionPreference = 'Stop'; Get-NetFirewallRule -Name $env:WLTOYS_CHECK_RULE -ErrorAction SilentlyContinue | Remove-NetFirewallRule", name);
-    } catch (error) {
-      firewallFailure ||= error;
-      console.error(`Could not remove CI firewall rule ${name}: ${error.message}`);
-    }
-  }
   if (!process.env.KEEP_PACKAGE_CHECK) {
     try { await fs.promises.rm(temp, { recursive: true, force: true, maxRetries: 10, retryDelay: 200 }); }
     catch (error) {
@@ -125,5 +101,4 @@ try {
       console.error(`Could not remove test directory ${temp}: ${error.message}`);
     }
   }
-  if (!failure && firewallFailure) throw firewallFailure;
 }

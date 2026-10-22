@@ -66,6 +66,13 @@ jobs:
         if: runner.os == 'Windows'
         shell: pwsh
         run: Add-Content $env:GITHUB_PATH '${{ steps.msys2.outputs.msys2-location }}\${{ matrix.prefix }}\bin'
+      - name: Windows test desktop
+        if: runner.os == 'Windows'
+        shell: powershell
+        run: |
+          # First-listen notifications steal the pointer from the native input fixture.
+          Set-NetFirewallProfile -Profile Domain,Private,Public -NotifyOnListen False
+          Get-NetFirewallProfile | Select-Object Name,Enabled,NotifyOnListen
       - name: Source checks
         shell: bash
         run: |
