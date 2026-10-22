@@ -40,12 +40,16 @@ end)
     cwd: home, env: { ...env, CAR_IP: "127.0.0.1", NO_AUTOCONNECT: "1", FULLSCREEN: "0", KEYBOARD_BIN: helper, GAMEPAD_BIN: path.join(home, "absent-gamepad"), JS_DEVICE: path.join(home, "absent-gamepad"), MPV_BIN: helper, FIXTURE_MPV: mpv, FIXTURE_LUA: fixture, FIXTURE_READY: ready },
     stdio: ["ignore", "pipe", "pipe"],
   });
-  let output = "";
+  let output = "", pendingStderr = "";
   child.stdout.on("data", (b) => output += b);
   child.stderr.on("data", (b) => {
     output += b;
     if (process.env.CI) process.stdout.write(b);
-    for (const match of String(b).matchAll(/fixture:(turn|release|forward|stale)/g)) marks[match[1]] = Date.now();
+    const lines = (pendingStderr + String(b)).split(/\r?\n/);
+    pendingStderr = lines.pop();
+    for (const line of lines) {
+      for (const match of line.matchAll(/fixture:(turn|release|forward|stale)/g)) marks[match[1]] = Date.now();
+    }
   });
   const sender = setInterval(() => {
     if (!streaming || !address) return;
