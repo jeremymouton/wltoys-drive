@@ -317,6 +317,7 @@ let kbStream = null;
 // Parse one held-key heartbeat line into kbState, recomputed fresh each call.
 // Module-level so --selftest can drive it directly with synthetic FIFO lines.
 function handleKeyLine(ln) {
+  ln = ln.trim(); // Native Windows helpers emit CRLF, Unix helpers emit LF.
   if (ln.startsWith("UI ")) { startupScreen?.input(ln.slice(3)); return; }
   if (picking && (ln === "HUD" || ln === "REC")) return;
   if (ln === "HUD") { toggleHud(); return; } // 'h' key: one-shot HUD on/off (down-edge from the Lua)
@@ -1341,6 +1342,14 @@ async function selftest() {
     const preflight = (wifi, ui, over = {}) => connectCar({ wifi, ui, noAutoconnect: false,
       carSsid: "", lastCar: null, remember: () => {}, retry: false, log: silent, ...over });
     const first = "WL FPV CAR 11111111", second = "WL FPV CAR 22222222";
+    let protocolChoice;
+    const protocolPicker = Object.create(StartupScreen.prototype);
+    Object.assign(protocolPicker, { cars: [first, second], index: 0, first: 0,
+      selection: (ssid) => { protocolChoice = ssid; }, render: () => {} });
+    startupScreen = protocolPicker;
+    handleKeyLine("UI DOWN\r"); handleKeyLine("UI SELECT\r");
+    startupScreen = null;
+    check("startup: native Windows CRLF input navigates and selects the car", protocolChoice === second);
     const none = fakeWifi([]), noneUi = fakeUi();
     const r0 = await preflight(none, noneUi);
     check("startup: no cars stays visible and sends no join", r0.action === "nojoin" && none.joins.length === 0 && noneUi.states.includes("No cars found yet"));
