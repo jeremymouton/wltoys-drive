@@ -24,6 +24,7 @@ export async function checkWindowsInput(app, home, env) {
     const released = lines.findIndex((s, i) => i > combined && s === "KEYS -");
     const forward = lines.findIndex((s, i) => i > released && s === "KEYS w");
     if (combined < 0 || released <= combined || forward <= released || !lines.slice(-5).every((s) => s === "KEYS -")) throw Error(`Native keyboard combine/release/focus check failed: ${keys} ${errors}`);
-    console.log("PASS Windows native keyboard: combined keys, release and focus-loss neutral");
+    if (!lines.includes("UI DOWN") || !lines.includes("UI SELECT") || !lines.some((s) => s.startsWith("UI CLICK "))) throw Error(`Native picker input failed: ${keys}`);
+    console.log("PASS Windows native keyboard: combined keys, picker navigation/click, release and focus-loss neutral");
   } finally { clearTimeout(timeout); helper.kill(); player.kill(); }
 }

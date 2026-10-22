@@ -212,6 +212,7 @@ static int inputSelftest(void) {
         [view keyDown:testKey(NSEventTypeKeyDown, 4, YES)];
         [view keyDown:testKey(NSEventTypeKeyDown, 15, NO)];
         [view keyDown:testKey(NSEventTypeKeyDown, 15, YES)];
+        [view keyDown:testKey(NSEventTypeKeyDown, 36, NO)];
         [[DriveDelegate new] windowDidResignKey:[NSNotification notificationWithName:NSWindowDidResignKeyNotification object:nil]];
         if (held.count) return 1;
         [view keyDown:testKey(NSEventTypeKeyDown, 126, NO)];

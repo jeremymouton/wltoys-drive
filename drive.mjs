@@ -1473,7 +1473,7 @@ if (process.argv.includes("--list")) {
 } else if (process.argv.includes("--hud-demo")) {
   hudDemo();
 } else {
-  main().catch((e) => { console.error(`[drive] ${e.message}`); process.exit(1); });
+  main().catch((e) => { console.error(`[drive] ${e.message}`); startupScreen?.player.kill(); process.exit(1); });
 }
 
 async function main() {

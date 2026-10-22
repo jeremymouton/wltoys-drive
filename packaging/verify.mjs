@@ -5,6 +5,7 @@ import { spawnSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import { smoke } from "./smoke.mjs";
 import { checkWindowsInput } from "./windows-input-check.mjs";
+import { checkStartup } from "./startup-check.mjs";
 
 const archive = path.resolve(process.argv[2] || "");
 if (!fs.statSync(archive).isFile()) throw Error("Pass a built platform archive");
@@ -33,7 +34,7 @@ try {
     if (fs.existsSync(path.join(app, "keyboard-helper")) || manifest.macKeyboardInput !== "window-local") throw Error("Mac global keyboard helper must not ship");
     if (!fs.existsSync(path.join(app, "Player.app/Contents/MacOS/wltoys-player"))) throw Error("Native Mac player missing");
     const keyboard = run(path.join(app, "Player.app/Contents/MacOS/wltoys-player"), ["--input-selftest"], { env });
-    if (!keyboard.includes("PASS window-local") || (keyboard.match(/^HUD$/gm) || []).length !== 1 || (keyboard.match(/^REC$/gm) || []).length !== 1) throw Error("Mac local input regression check failed");
+    if (!keyboard.includes("PASS window-local") || !keyboard.includes("UI UP") || !keyboard.includes("UI SELECT") || (keyboard.match(/^HUD$/gm) || []).length !== 1 || (keyboard.match(/^REC$/gm) || []).length !== 1) throw Error("Mac local input regression check failed");
     for (const file of [mpv, ...fs.readdirSync(path.join(app, "lib")).map((s) => path.join(app, "lib", s))]) {
       if (/\/(opt\/homebrew|usr\/local)\//.test(run("otool", ["-L", file]))) throw Error(`Host library leak: ${file}`);
     }
@@ -59,6 +60,8 @@ try {
   }
   console.log("Checking app UDP/input/video integration");
   await smoke({ app, node, mpv, env, home });
+  console.log("Checking visible discovery, automatic connection and car picker");
+  await checkStartup({ app, node, mpv, env, home });
   if (process.platform === "win32") await checkWindowsInput(app, home, env);
   console.log(`PASS ${manifest.target}: extracted launch, runtime, player, HUD, UDP video/control, failsafes and notices`);
   if (process.env.KEEP_PACKAGE_CHECK) console.log(`Extracted package: ${top}`);

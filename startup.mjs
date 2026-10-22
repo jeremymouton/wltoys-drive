@@ -137,7 +137,7 @@ export class StartupScreen {
     if (action === "DOWN") this.index = (this.index + 1) % this.cars.length;
     if (action === "CLICK") {
       const row = Math.floor((Number(y) - 270) / 46);
-      if (Number(x) < 330 || Number(x) > 950 || row < 0 || row >= 7 || this.first + row >= this.cars.length) return;
+      if (!Number.isFinite(Number(x)) || !Number.isFinite(Number(y)) || Number(x) < 330 || Number(x) > 950 || row < 0 || row >= 7 || this.first + row >= this.cars.length) return;
       this.index = this.first + row;
     }
     if (action === "SELECT" || action === "CLICK") {
