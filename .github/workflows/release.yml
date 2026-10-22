@@ -165,4 +165,4 @@ jobs:
           if ! gh release view "$TAG" >/dev/null 2>&1; then
             gh release create "$TAG" --verify-tag --generate-notes --title "$TAG"
           fi
-          gh release upload "$TAG" ./* --clobber
+          gh release upload "$TAG" ./wltoys-drive-*.zip ./wltoys-drive-*.tar.gz ./wltoys-drive-*.sha256 ./*-helper-macos-arm64 ./SHA256SUMS --clobber
