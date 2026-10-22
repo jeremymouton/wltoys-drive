@@ -80,7 +80,7 @@ try {
   throw error;
 } finally {
   if (!process.env.KEEP_PACKAGE_CHECK) {
-    try { fs.rmSync(temp, { recursive: true, force: true, maxRetries: 10, retryDelay: 200 }); }
+    try { await fs.promises.rm(temp, { recursive: true, force: true, maxRetries: 10, retryDelay: 200 }); }
     catch (error) {
       if (!failure) throw error;
       console.error(`Could not remove test directory ${temp}: ${error.message}`);
